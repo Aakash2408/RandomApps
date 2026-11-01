@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Refuse a commit while the test suite is red.
+# Setup per clone: git config core.hooksPath .githooks
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+PY=.venv/bin/python
+if [[ ! -x $PY ]]; then
+  echo "pre-commit: no .venv -- run: python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt" >&2
+  exit 1
+fi
+
+if git diff --cached --name-only | grep -qE '(^|/)\.env$'; then
+  echo "pre-commit: refusing to commit a .env file" >&2
+  exit 1
+fi
+
+$PY -B -m pytest -q -p no:cacheprovider
