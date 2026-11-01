@@ -17,5 +17,6 @@ ENV HOST=0.0.0.0
 # SQLite lives on a Railway volume mounted at /data, so it survives redeploys.
 # Railway mounts volumes as root, so the process runs as root to write there.
 ENV CODGUARD_DB=/data/codguard.sqlite3
+RUN mkdir -p /data
 
 CMD ["python", "-m", "app"]

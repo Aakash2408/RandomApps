@@ -5,7 +5,7 @@ Each plan is one AppSubscription with two line items:
   * a usage line for checks above N, billed per check up to a monthly cap
 Shopify charges the merchant and pays out to the partner account, so the app
 never handles card data. Prices are USD because that is what the Billing API
-charges in for Indian stores; the INR figures in PLANS are only for display.
+charges in; Shopify shows merchants the converted amount on their bill.
 """
 from __future__ import annotations
 
@@ -23,14 +23,13 @@ class Plan:
     included_checks: int
     overage_usd: float      # per check above included_checks
     overage_cap_usd: float  # max usage charge per 30-day cycle
-    approx_inr: int
 
 
 PLANS = {
     p.key: p for p in (
-        Plan("starter", "Starter", 9.0, 300, 0.03, 30.0, 799),
-        Plan("growth", "Growth", 29.0, 1500, 0.02, 60.0, 2499),
-        Plan("pro", "Pro", 79.0, 6000, 0.015, 150.0, 6799),
+        Plan("starter", "Starter", 9.0, 300, 0.03, 30.0),
+        Plan("growth", "Growth", 29.0, 1500, 0.02, 60.0),
+        Plan("pro", "Pro", 79.0, 6000, 0.015, 150.0),
     )
 }
 TRIAL_DAYS = 7

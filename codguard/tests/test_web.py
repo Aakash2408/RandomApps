@@ -71,7 +71,7 @@ def test_prepaid_and_unsubscribed_orders_are_skipped(installed_shop, fake_admin)
 
 def test_overage_billed_only_above_included(installed_shop, fake_admin, monkeypatch):
     from app import billing
-    monkeypatch.setitem(billing.PLANS, "starter", billing.Plan("starter", "Starter", 9, 2, 0.03, 30, 799))
+    monkeypatch.setitem(billing.PLANS, "starter", billing.Plan("starter", "Starter", 9, 2, 0.03, 30))
     for i in range(3):
         service.handle_order_created(SHOP, cod_order(3000 + i))
     usage_calls = [v for q, v in fake_admin.calls if "appUsageRecordCreate" in q]
@@ -116,10 +116,12 @@ def test_summary_counts_savings(client, installed_shop, fake_admin):
     token = db.list_checks(SHOP, None)  # ensure stored
     with db.conn() as c:
         tok = c.execute("SELECT token FROM checks").fetchone()["token"]
-    client.post(f"/c/{tok}", data={"action": "update", "landmark": "Flat 2, opp SBI ATM"})
+    client.post(f"/c/{tok}", data={"action": "update", "details": "Flat 2, opp SBI ATM"})
     s = client.get("/api/summary", headers=auth_header()).json()
-    assert s["summary"]["updated"] == 1
-    assert s["estimated_saved_inr"] == 150
+    assert s["summary"]["updated"] == 1 and s["avoided"] == 1
+    assert s["estimated_saved"] is None  # no invented cost until the merchant sets one
+    client.post("/api/settings", json={"rto_cost": 180}, headers=auth_header())
+    assert client.get("/api/summary", headers=auth_header()).json()["estimated_saved"] == 180
     assert token
 
 
@@ -179,9 +181,9 @@ def test_confirm_page_escapes_customer_input(client, installed_shop, fake_admin)
 
 def test_update_writes_landmark_back_and_link_is_single_use(client, installed_shop, fake_admin):
     tok = _flag_order(address1="near hanuman temple", address2="")
-    r = client.post(f"/c/{tok}", data={"action": "update", "landmark": "House 14, blue gate"})
+    r = client.post(f"/c/{tok}", data={"action": "update", "details": "House 14, blue gate"})
     assert r.status_code == 200 and "added your details" in r.text
-    assert fake_admin.updates == [("gid://shopify/Order/7001", {"address2": "Landmark: House 14, blue gate"})]
+    assert fake_admin.updates == [("gid://shopify/Order/7001", {"address2": "Courier note: House 14, blue gate"})]
     assert ("gid://shopify/Order/7001", ["CODGuard-address-updated"]) in fake_admin.tags
     assert client.get(f"/c/{tok}").status_code == 404
     assert client.post(f"/c/{tok}", data={"action": "confirm"}).status_code == 404
@@ -189,7 +191,7 @@ def test_update_writes_landmark_back_and_link_is_single_use(client, installed_sh
 
 def test_update_requires_landmark_and_unknown_actions_fail(client, installed_shop, fake_admin):
     tok = _flag_order(address1="near temple", address2="")
-    assert client.post(f"/c/{tok}", data={"action": "update", "landmark": "  "}).status_code == 400
+    assert client.post(f"/c/{tok}", data={"action": "update", "details": "  "}).status_code == 400
     assert client.post(f"/c/{tok}", data={"action": "drop table"}).status_code == 400
 
 
@@ -217,6 +219,7 @@ def test_oauth_callback_requires_hmac_and_state(client, monkeypatch):
     monkeypatch.setattr(shopify, "exchange_code",
                         lambda shop, code: {"access_token": "shpat_new", "scope": "read_orders,write_orders"})
     monkeypatch.setattr(shopify.Admin, "subscribe_webhook", lambda self, t, u: calls.append(t))
+    monkeypatch.setattr(shopify.Admin, "shop_currency", lambda self: "INR")
 
     r = client.get("/auth?shop=" + SHOP, follow_redirects=False)
     state = r.headers["location"].split("state=")[1].split("&")[0]
@@ -241,3 +244,83 @@ def test_embedded_page_frame_policy(client):
     r = client.get(f"/app?shop={SHOP}")
     assert r.headers["content-security-policy"] == f"frame-ancestors https://{SHOP} https://admin.shopify.com"
     assert client.get("/c/" + "x" * 32).headers["content-security-policy"] == "frame-ancestors 'none'"
+
+
+# --- global ----------------------------------------------------------------------
+
+UAE_ORDER = dict(address1="Al Wasl Road, near Safa Park", address2="", city="Dubai", province="Dubai",
+                 province_code="DU", zip="", country_code="AE", country="United Arab Emirates",
+                 phone="12345", first_name="Fatima", name="Fatima Al Mansoori")
+
+
+def _order(order_id, locale, gateway, currency, **addr):
+    o = cod_order(order_id, **addr)
+    o.update(customer_locale=locale, payment_gateway_names=[gateway], currency=currency)
+    return o
+
+
+def test_arabic_shopper_gets_rtl_arabic_page(client, installed_shop, fake_admin):
+    service.handle_order_created(SHOP, _order(9101, "ar", "الدفع عند الاستلام", "AED", **UAE_ORDER))
+    with db.conn() as c:
+        row = c.execute("SELECT token, country, currency, locale, band FROM checks").fetchone()
+    assert (row["country"], row["currency"], row["band"]) == ("AE", "AED", "medium")  # bad phone
+    page = client.get(f"/c/{row['token']}").text
+    assert '<html lang="ar" dir="rtl">' in page and "أكّد طلبك" in page
+    assert "أضف رقم هاتف" in page  # the phone ask, in Arabic
+    done = client.post(f"/c/{row['token']}", data={"action": "confirm"}).text
+    assert "تم تأكيد طلبك" in done
+
+
+def test_spanish_shopper_and_spanish_cod_gateway(client, installed_shop, fake_admin):
+    o = _order(9102, "es-MX", "Pago contra entrega", "MXN", address1="cerca de la iglesia",
+               address2="", city="Puebla", province_code="PUE", zip="72000", country_code="MX",
+               phone="222 123 4567", first_name="")
+    assert service.handle_order_created(SHOP, o) == "scored:medium"
+    with db.conn() as c:
+        tok = c.execute("SELECT token FROM checks").fetchone()["token"]
+    page = client.get(f"/c/{tok}").text
+    assert "Confirma tu pedido" in page and "Hola, confirma" in page  # no name: no dangling greeting
+
+
+def test_unknown_locale_falls_back_to_english_and_expired_uses_browser_language(client, installed_shop,
+                                                                                 fake_admin):
+    service.handle_order_created(SHOP, _order(9103, "xx", "COD", "INR", address1="near temple", address2=""))
+    with db.conn() as c:
+        tok = c.execute("SELECT token FROM checks").fetchone()["token"]
+    assert "Confirm your order" in client.get(f"/c/{tok}").text
+    r = client.get("/c/" + "x" * 32, headers={"Accept-Language": "pt-BR,pt;q=0.9"})
+    assert r.status_code == 404 and "Link expirado" in r.text
+
+
+def test_whatsapp_uses_e164_and_approved_language(monkeypatch, settings):
+    import dataclasses
+    from app import config, notifier
+    monkeypatch.setattr(config, "settings", dataclasses.replace(
+        settings, wa_token="t", wa_phone_number_id="1", wa_template="cod_confirm", wa_template_langs="en,ar"))
+    sent = []
+
+    class C:
+        def post(self, url, json, headers):
+            sent.append(json)
+            return type("R", (), {"status_code": 200, "text": ""})()
+
+    assert notifier.send_confirmation("+971501234567", "Fatima", "#1", "https://x/c/t", "ar", client=C()) == "sent"
+    assert notifier.send_confirmation("+5215512345678", "Ana", "#2", "https://x/c/u", "es", client=C()) == "sent"
+    assert notifier.send_confirmation("", "Ana", "#3", "https://x/c/v", "es", client=C()) == "no_phone"
+    assert [(m["to"], m["template"]["language"]["code"]) for m in sent] == [("971501234567", "ar"),
+                                                                           ("5215512345678", "en")]
+
+
+def test_install_records_shop_currency(client, monkeypatch):
+    import hashlib, hmac as _h
+    from tests.conftest import SECRET
+    monkeypatch.setattr(shopify, "exchange_code", lambda s, c: {"access_token": "t", "scope": "read_orders,write_orders"})
+    monkeypatch.setattr(shopify.Admin, "subscribe_webhook", lambda self, t, u: None)
+    monkeypatch.setattr(shopify.Admin, "shop_currency", lambda self: "SAR")
+    loc = client.get("/auth?shop=" + SHOP, follow_redirects=False).headers["location"]
+    state = loc.split("state=")[1].split("&")[0]
+    p = {"shop": SHOP, "code": "c", "state": state, "timestamp": "1"}
+    p["hmac"] = _h.new(SECRET.encode(), "&".join(f"{k}={v}" for k, v in sorted(p.items())).encode(),
+                       hashlib.sha256).hexdigest()
+    client.get("/auth/callback", params=p, follow_redirects=False)
+    assert db.get_shop(SHOP)["currency"] == "SAR"

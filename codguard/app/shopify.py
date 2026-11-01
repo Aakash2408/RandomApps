@@ -130,6 +130,9 @@ class Admin:
             raise RuntimeError(f"Shopify GraphQL error: {body['errors']}")
         return body["data"]
 
+    def shop_currency(self) -> str:
+        return self.gql("{ shop { currencyCode } }")["shop"]["currencyCode"]
+
     def add_tags(self, gid: str, tags: list[str]) -> None:
         data = self.gql(
             """mutation($id: ID!, $tags: [String!]!) {

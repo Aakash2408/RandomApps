@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import billing, config, crypto, db, service, shopify
+from . import billing, config, crypto, db, i18n, service, shopify
 
 @asynccontextmanager
 async def _lifespan(_app):
@@ -87,6 +87,7 @@ def auth_callback(request: Request):
         raise HTTPException(403, f"missing scopes: {sorted(wanted - granted)}")
     db.upsert_shop(shop, crypto.encrypt(token["access_token"]), token.get("scope", ""))
     admin = shopify.Admin(shop, token["access_token"])
+    db.set_currency(shop, admin.shop_currency())
     for topic in WEBHOOK_TOPICS:
         admin.subscribe_webhook(topic, f"{config.settings.app_url}/webhooks")
     return RedirectResponse(_admin_app_url(shop))
@@ -138,7 +139,10 @@ def api_summary(shop: str = Depends(current_shop)):
         "used": db.usage_count(shop, month),
         "summary": s,
         "rto_cost": row["rto_cost"],
-        "estimated_saved_inr": avoided * row["rto_cost"],
+        "currency": row["currency"] or "USD",
+        # None until the merchant sets their return cost: no invented number.
+        "estimated_saved": avoided * row["rto_cost"] if row["rto_cost"] else None,
+        "avoided": avoided,
         "whatsapp_enabled": service.notifier.enabled(),
         "plans": [p.__dict__ for p in billing.PLANS.values()],
     }
@@ -169,8 +173,8 @@ async def api_outcome(check_id: int, request: Request, shop: str = Depends(curre
 @app.post("/api/settings")
 async def api_settings(request: Request, shop: str = Depends(current_shop)):
     cost = (await request.json()).get("rto_cost")
-    if not isinstance(cost, int) or not 0 <= cost <= 5000:
-        raise HTTPException(400, "rto_cost must be an integer between 0 and 5000")
+    if not isinstance(cost, int) or not 0 <= cost <= 10_000_000:  # covers IDR, VND, COP
+        raise HTTPException(400, "rto_cost must be an integer between 0 and 10,000,000")
     db.set_rto_cost(shop, cost)
     return {"ok": True}
 
@@ -265,55 +269,69 @@ def _live_check(token: str):
     return check
 
 
+def _lang(check, accept_language: str | None) -> str:
+    if check is not None and check["locale"]:
+        return i18n.lang_for(check["locale"])
+    return i18n.lang_for((accept_language or "").split(",")[0].split(";")[0])
+
+
+def _expired(lang: str) -> HTMLResponse:
+    return HTMLResponse(_page(i18n.t(lang, "expired_title"), f"<p>{html.escape(i18n.t(lang, 'expired'))}</p>",
+                              lang), 404)
+
+
 @app.get("/c/{token}")
-def confirm_page(token: str):
+def confirm_page(token: str, accept_language: str | None = Header(default=None)):
     check = _live_check(token)
+    lang = _lang(check, accept_language)
     if not check:
-        return HTMLResponse(_page("Link expired", "<p>This link has expired or was already used.</p>"), 404)
-    addr = json.loads(check["address_json"] or "{}")
-    asks = [r.get("ask") for r in json.loads(check["reasons_json"]) if r.get("ask")]
+        return _expired(lang)
+    T = lambda k: html.escape(i18n.t(lang, k))  # noqa: E731
     e = html.escape
-    lines = ", ".join(e(str(addr.get(k))) for k in ("address1", "address2", "city", "province", "zip") if addr.get(k))
-    ask_html = "".join(f"<li>{e(a)}</li>" for a in dict.fromkeys(asks))
+    addr = json.loads(check["address_json"] or "{}")
+    asks = dict.fromkeys(r.get("ask") for r in json.loads(check["reasons_json"]) if r.get("ask"))
+    lines = ", ".join(e(str(addr.get(k))) for k in ("address1", "address2", "city", "province", "zip", "country")
+                      if addr.get(k))
+    ask_html = "".join(f"<li>{T('ask.' + a)}</li>" for a in asks if f"ask.{a}" in i18n.STRINGS["en"])
+    intro = i18n.intro(lang, e(check["first_name"] or ""), e(check["order_name"] or ""))
     body = f"""
-      <p>Hi {e(check['first_name'] or 'there')}, please confirm your cash-on-delivery order
-         <strong>{e(check['order_name'] or '')}</strong> so the courier can find you.</p>
-      <p class="addr">{lines}</p>
-      {f'<p>To help the courier:</p><ul>{ask_html}</ul>' if ask_html else ''}
+      <p>{intro}</p>
+      <p class="addr" dir="auto">{lines}</p>
+      {f'<p>{T("helps")}</p><ul>{ask_html}</ul>' if ask_html else ''}
       <form method="post">
-        <button name="action" value="confirm">Yes, this address is correct</button>
+        <button name="action" value="confirm">{T("confirm")}</button>
       </form>
       <form method="post">
-        <label for="landmark">Add a house number or landmark</label>
-        <input id="landmark" name="landmark" maxlength="120" required
-               placeholder="e.g. Flat 302, opposite SBI ATM">
-        <button name="action" value="update">Save and confirm</button>
+        <label for="details">{T("details_label")}</label>
+        <input id="details" name="details" maxlength="120" required dir="auto"
+               placeholder="{T("details_placeholder")}">
+        <button name="action" value="update">{T("save")}</button>
       </form>
       <form method="post">
-        <button class="secondary" name="action" value="cancel">Cancel this order</button>
+        <button class="secondary" name="action" value="cancel">{T("cancel")}</button>
       </form>"""
-    return HTMLResponse(_page("Confirm your order", body))
+    return HTMLResponse(_page(i18n.t(lang, "title"), body, lang))
 
 
 @app.post("/c/{token}")
-def confirm_submit(token: str, action: str = Form(...), landmark: str = Form("")):
+def confirm_submit(token: str, action: str = Form(...), details: str = Form(""),
+                   accept_language: str | None = Header(default=None)):
     check = _live_check(token)
+    lang = _lang(check, accept_language)
     if not check:
-        return HTMLResponse(_page("Link expired", "<p>This link has expired or was already used.</p>"), 404)
+        return _expired(lang)
     try:
-        status = service.customer_response(check, action, landmark)
+        status = service.customer_response(check, action, details)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    msg = {"confirmed": "Thanks! Your order is confirmed.",
-           "updated": "Thanks! We've added your details for the courier.",
-           "cancel_requested": "Your cancellation request has been sent to the store."}[status]
-    return HTMLResponse(_page("Done", f"<p>{msg}</p>"))
+    return HTMLResponse(_page(i18n.t(lang, "done"), f"<p>{html.escape(i18n.t(lang, 'done.' + status))}</p>", lang))
 
 
 # --- HTML ----------------------------------------------------------------------
 
-def _page(title: str, body: str) -> str:
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+def _page(title: str, body: str, lang: str = "en") -> str:
+    direction = "rtl" if lang in i18n.RTL else "ltr"
+    return f"""<!doctype html><html lang="{html.escape(lang)}" dir="{direction}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title>
 <style>
@@ -345,12 +363,14 @@ ADMIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <div id="plans" hidden><h2>Choose a plan (7-day free trial)</h2><div class="cards" id="plan-cards"></div></div>
 <section id="main" hidden aria-live="polite">
  <div class="cards">
-  <div class="card"><div>Saved this month (est.)</div><div class="big" id="saved"></div></div>
+  <div class="card"><div>Saved this month (est.)</div><div class="big" id="saved"></div><div id="saved-note"></div></div>
   <div class="card"><div>COD orders checked</div><div class="big" id="checked"></div><div id="quota"></div></div>
   <div class="card"><div>High risk</div><div class="big high" id="high"></div></div>
   <div class="card"><div>Fixed or cancelled by customer</div><div class="big" id="fixed"></div></div>
  </div>
  <p id="wa"></p>
+ <form id="cost-form"><label for="cost">Your cost of one failed COD delivery (shipping both ways), in <span id="cur"></span></label>
+  <input id="cost" type="number" min="0" max="10000000" step="1" required> <button>Save</button></form>
  <h2>Recent COD orders</h2>
  <table><thead><tr><th scope="col">Order</th><th scope="col">Risk</th><th scope="col">Why</th><th scope="col">Status</th><th scope="col">Outcome</th></tr></thead><tbody id="rows"></tbody></table>
 </section>
@@ -376,7 +396,7 @@ async function load() {
     const cards = document.getElementById("plan-cards"); cards.replaceChildren();
     for (const p of s.plans) {
       const c = el("div", undefined, "card");
-      c.append(el("h3", p.name), el("div", `$${p.monthly_usd}/month (about Rs ${p.approx_inr})`),
+      c.append(el("h3", p.name), el("div", `$${p.monthly_usd} USD/month`),
                el("div", `${p.included_checks} COD checks included, then $${p.overage_usd} each`));
       const b = el("button", `Start ${p.name} trial`); b.onclick = () => subscribe(p.key); c.append(b);
       cards.append(c);
@@ -384,7 +404,13 @@ async function load() {
     document.getElementById("plans").hidden = false; return;
   }
   document.getElementById("main").hidden = false;
-  document.getElementById("saved").textContent = "Rs " + s.estimated_saved_inr.toLocaleString("en-IN");
+  const money = new Intl.NumberFormat(undefined, {style: "currency", currency: s.currency, maximumFractionDigits: 0});
+  document.getElementById("cur").textContent = s.currency;
+  document.getElementById("cost").value = s.rto_cost || "";
+  document.getElementById("saved").textContent = s.estimated_saved === null ? "-" : money.format(s.estimated_saved);
+  document.getElementById("saved-note").textContent = s.estimated_saved === null
+    ? `${s.avoided} failed deliveries avoided. Set your return cost below to see the amount.`
+    : `${s.avoided} failed deliveries avoided`;
   document.getElementById("checked").textContent = s.summary.checked;
   document.getElementById("quota").textContent = `${s.used} of ${s.plan.included_checks} included`;
   document.getElementById("high").textContent = s.summary.high;
@@ -406,5 +432,10 @@ async function load() {
     rows.append(tr);
   }
 }
+document.getElementById("cost-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  await api("/api/settings", {method: "POST", body: JSON.stringify({rto_cost: parseInt(document.getElementById("cost").value, 10)})});
+  load();
+};
 load().catch(e => { document.body.append(el("p", "Could not load: " + e.message)); });
 </script></body></html>"""

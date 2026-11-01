@@ -16,7 +16,7 @@ CODGuard: COD Address Check
 
 ## App card subtitle (max 62)
 
-Catch bad COD addresses before you ship, and confirm on WhatsApp
+Catch bad COD addresses before you ship, in any country
 
 ## App introduction (max 100)
 
@@ -24,21 +24,22 @@ Score every cash-on-delivery order's address, flag risky ones, and let shoppers 
 
 ## App details (max 500)
 
-Every COD order that comes back undelivered costs you shipping both ways. Most of
-those returns start with an address the courier can't find: no door number, only
-a landmark, a PIN code that doesn't match the state, or a fake phone number.
+Every COD order that comes back undelivered costs you shipping both ways. Many of
+those returns start with an address the courier can't find: no building number,
+a postal code in the wrong format, or a phone number that can't be reached.
 
-CODGuard checks each new COD order the moment it's placed, tags it low, medium or
-high risk with plain-English reasons, and sends risky customers a link to confirm
-their order or add a landmark. Their fix is written straight into the order.
+CODGuard checks each new COD order the moment it's placed, using rules for the
+customer's country, and tags it low, medium or high risk with clear reasons.
+Risky customers get a link, in their own language, to confirm or add details.
+Their fix is written straight into the order.
 
 ## Feature list (up to 5, max 80 each)
 
 1. Checks every new COD order automatically. Prepaid orders are skipped.
-2. Explains each flag: bad PIN, missing door number, fake phone and more
-3. Customers confirm or add a landmark through a one-tap link
-4. Tags orders in Shopify so your team can filter and act fast
-5. Dashboard shows flagged orders and estimated return costs avoided
+2. Country-aware: postal codes, phone numbers and local address styles
+3. Shoppers confirm or add details in their language, including Arabic
+4. Clear reasons on every flag, and order tags your team can filter on
+5. Dashboard shows failed deliveries avoided, in your store's currency
 
 ## Pricing plans
 
@@ -51,13 +52,19 @@ All plans include a 7-day free trial. Billed by Shopify every 30 days.
 | Pro | $79/month | 6,000 COD order checks | $0.015 per check, capped at $150 |
 
 Plan descriptions (one line each, shown under the plan):
-- Starter: For new stores shipping up to about 10 COD orders a day.
-- Growth: For growing stores shipping up to about 50 COD orders a day.
-- Pro: For high-volume stores shipping up to about 200 COD orders a day.
+- Starter: For stores shipping up to about 10 COD orders a day.
+- Growth: For stores shipping up to about 50 COD orders a day.
+- Pro: For stores shipping up to about 200 COD orders a day.
 
 ## Search terms (up to 5)
 
-cod verification, rto reduction, address validation, cash on delivery, order confirmation
+cod verification, cash on delivery, address validation, failed delivery, order confirmation
+
+## Target markets (for ads and outreach, not the listing)
+
+COD-heavy markets where merchants pay for apps: UAE, Saudi Arabia, Kuwait, Qatar,
+Egypt, Morocco, Turkey, Indonesia, Philippines, Malaysia, Vietnam, Mexico,
+Colombia, Peru, Chile, Brazil, Poland, Romania, Czechia, Greece, Italy. India too.
 
 ## Categories
 
@@ -71,10 +78,10 @@ Secondary: Store management › Fraud prevention
    - Alt: CODGuard dashboard with cards for estimated savings, orders checked, high-risk orders and customer fixes.
 2. Flagged order with reasons
    - Caption: Every flag comes with a reason your team can act on.
-   - Alt: Table of recent COD orders showing risk score, band and reasons such as "No house, flat or plot number".
-3. Customer confirmation page (mobile)
-   - Caption: Shoppers confirm or add a landmark in one tap, with no login.
-   - Alt: Mobile page asking the customer to confirm their address or add a house number or landmark.
+   - Alt: Table of recent COD orders showing risk score, band and reasons such as "Phone number is not a valid number for AE".
+3. Customer confirmation page (mobile, Arabic and Spanish side by side)
+   - Caption: Shoppers confirm in their own language in one tap, with no login.
+   - Alt: Two mobile confirmation pages, one in Arabic laid out right to left and one in Spanish.
 4. Order tags in Shopify admin
    - Caption: Risk tags land on the order, so you can filter before you fulfil.
    - Alt: Shopify order list filtered by the CODGuard-high tag.
@@ -85,7 +92,7 @@ Secondary: Store management › Fraud prevention
 
 ## Privacy and data (for the listing's data section and the review form)
 
-- Reads: order number, total, payment method, shipping address, customer first name and phone (to score the address).
+- Reads: order number, total, currency, payment method, checkout language, shipping address, customer first name and phone (to score the address).
 - Stores: the risk score and reasons, a copy of the shipping address for the confirmation page, and a keyed hash of the phone number (never the number itself) to recognise repeat returns.
 - Shares: if you turn on WhatsApp confirmations, the customer's phone number and order number are sent to Meta's WhatsApp Cloud API to deliver the message.
 - Deletion: honours Shopify's customer redact and shop redact requests. Uninstalling stops all processing immediately.
@@ -94,11 +101,12 @@ Secondary: Store management › Fraud prevention
 
 To test:
 1. Install on the review store and start any plan (test charges are on during review).
-2. Place an order using the "Cash on Delivery (COD)" manual payment method with
-   address line 1 "near temple", no address line 2, PIN 560102, state Karnataka.
+2. Place an order using the "Cash on Delivery (COD)" manual payment method,
+   shipping to the United States, with address line 1 "near the park", no
+   address line 2, ZIP 10001 and phone +1 212 555 0123.
 3. Within a few seconds the order is tagged CODGuard-medium and appears in the
-   app dashboard with its reasons.
+   app dashboard with its reasons (no building number, landmark only).
 4. In the app dashboard, click "Copy confirm link" on that order, open the link,
-   add "House 12" as a landmark and save. The order's address line 2 updates and
+   enter "Building 12, apt 3" and save. The order's address line 2 updates and
    the link stops working (it is single-use).
 WhatsApp sending is optional and disabled on the review store; flagged orders are still tagged.

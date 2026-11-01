@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -20,7 +21,9 @@ CREATE TABLE IF NOT EXISTS shops (
     subscription_gid    TEXT,
     subscription_status TEXT,
     usage_line_gid      TEXT,
-    rto_cost            INTEGER NOT NULL DEFAULT 150
+    currency            TEXT,
+    -- the merchant's two-way cost of one failed COD delivery, in `currency`; 0 = not set
+    rto_cost            INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS oauth_states (
     state      TEXT PRIMARY KEY,
@@ -43,6 +46,9 @@ CREATE TABLE IF NOT EXISTS checks (
     reasons_json     TEXT NOT NULL,
     address_json     TEXT,
     total            REAL,
+    currency         TEXT,
+    country          TEXT,
+    locale           TEXT,
     status           TEXT NOT NULL,
     token            TEXT UNIQUE,
     token_expires_at INTEGER,
@@ -78,6 +84,8 @@ def conn() -> Iterator[sqlite3.Connection]:
 
 
 def init() -> None:
+    parent = os.path.dirname(os.path.abspath(config.settings.db_path))
+    os.makedirs(parent, exist_ok=True)
     with conn() as c:
         c.executescript(SCHEMA)
 
@@ -129,9 +137,14 @@ def set_subscription(shop: str, *, plan: str | None = None, gid: str | None = No
         c.execute(f"UPDATE shops SET {cols} WHERE shop=?", (*sets.values(), shop))
 
 
-def set_rto_cost(shop: str, rupees: int) -> None:
+def set_rto_cost(shop: str, amount: int) -> None:
     with conn() as c:
-        c.execute("UPDATE shops SET rto_cost=? WHERE shop=?", (rupees, shop))
+        c.execute("UPDATE shops SET rto_cost=? WHERE shop=?", (amount, shop))
+
+
+def set_currency(shop: str, currency: str) -> None:
+    with conn() as c:
+        c.execute("UPDATE shops SET currency=? WHERE shop=?", (currency, shop))
 
 
 def delete_shop_data(shop: str) -> None:
@@ -183,6 +196,19 @@ def history_for(shop: str, phone_hash: str, exclude_order: str) -> tuple[int, in
             (shop, phone_hash, exclude_order, now() - 86400),
         ).fetchone()[0]
     return rto, burst
+
+
+def typical_total(shop: str, sample: int = 200) -> tuple[float, int]:
+    """(median COD order value, orders it is based on) over the shop's recent checks."""
+    with conn() as c:
+        vals = sorted(r[0] for r in c.execute(
+            "SELECT total FROM checks WHERE shop=? AND total>0 ORDER BY created_at DESC LIMIT ?",
+            (shop, sample)))
+    if not vals:
+        return 0.0, 0
+    mid = len(vals) // 2
+    median = vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+    return median, len(vals)
 
 
 def insert_check(**row) -> int | None:
@@ -238,7 +264,7 @@ def list_checks(shop: str, band: str | None, limit: int = 100) -> list[dict]:
         # The live link is the merchant's to share (e.g. from their own WhatsApp)
         # while the order still awaits the customer; never after it is used.
         d["confirm_token"] = d["token"] if d["status"] == "flagged" else None
-        for private in ("token", "phone_hash", "address_json", "first_name"):
+        for private in ("token", "phone_hash", "address_json", "first_name", "locale"):
             d.pop(private, None)
         out.append(d)
     return out

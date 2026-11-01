@@ -3,9 +3,11 @@
 Business-initiated WhatsApp messages must use a template Meta has approved, so
 this sends a template with three body parameters:
     {{1}} customer first name   {{2}} order name   {{3}} confirmation link
+Each language needs its own approved translation of the template. List the
+approved languages in WHATSAPP_TEMPLATE_LANGS (e.g. "en,ar,es,pt"); a shopper
+whose language is not approved gets WHATSAPP_TEMPLATE_LANG (the default).
 Until WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TEMPLATE are all set,
-sending is disabled and every call returns "disabled" -- the order is still
-tagged, so the merchant can call the customer instead.
+sending is disabled and every call returns "disabled".
 """
 from __future__ import annotations
 
@@ -24,23 +26,28 @@ def enabled() -> bool:
     return bool(s.wa_token and s.wa_phone_number_id and s.wa_template)
 
 
-def send_confirmation(phone10: str, first_name: str, order_name: str, link: str,
+def template_lang(lang: str) -> str:
+    approved = {x.strip() for x in config.settings.wa_template_langs.split(",") if x.strip()}
+    return lang if lang in approved else config.settings.wa_template_lang
+
+
+def send_confirmation(e164: str, first_name: str, order_name: str, link: str, lang: str = "en",
                       client: httpx.Client | None = None) -> str:
     """Returns 'sent', 'disabled', 'no_phone' or 'failed'. Never raises."""
     if not enabled():
         return "disabled"
-    if len(phone10) != 10:
+    if not e164.startswith("+"):
         return "no_phone"
     s = config.settings
     body = {
         "messaging_product": "whatsapp",
-        "to": f"91{phone10}",
+        "to": e164[1:],
         "type": "template",
         "template": {
             "name": s.wa_template,
-            "language": {"code": s.wa_template_lang},
+            "language": {"code": template_lang(lang)},
             "components": [{"type": "body", "parameters": [
-                {"type": "text", "text": first_name or "there"},
+                {"type": "text", "text": first_name or "-"},
                 {"type": "text", "text": order_name},
                 {"type": "text", "text": link},
             ]}],

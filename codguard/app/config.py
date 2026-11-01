@@ -39,6 +39,8 @@ class Settings:
     wa_phone_number_id: str = _env("WHATSAPP_PHONE_NUMBER_ID")
     wa_template: str = _env("WHATSAPP_TEMPLATE")
     wa_template_lang: str = _env("WHATSAPP_TEMPLATE_LANG", "en")
+    # Languages the template is approved in, e.g. "en,ar,es,pt".
+    wa_template_langs: str = _env("WHATSAPP_TEMPLATE_LANGS")
     # Days a customer confirmation link stays valid.
     confirm_ttl_days: int = int(_env("CODGUARD_CONFIRM_TTL_DAYS", "7"))
 

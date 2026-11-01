@@ -36,6 +36,9 @@ class FakeAdmin:
     def update_order(self, gid, **kw):
         self.updates.append((gid, kw))
 
+    def shop_currency(self):
+        return "AED"
+
     def gql(self, query, variables=None):
         self.calls.append((query, variables))
         if "appUsageRecordCreate" in query:
@@ -91,8 +94,8 @@ def cod_order(order_id=1001, **addr):
                "address1": "Flat 302, Sunrise Apartments, 14th Main Road",
                "address2": "HSR Layout Sector 2", "city": "Bengaluru",
                "province": "Karnataka", "province_code": "KA", "zip": "560102",
-               "phone": "+91 98450 12345"}
+               "country_code": "IN", "country": "India", "phone": "+91 98450 12345"}
     address.update(addr)
     return {"id": order_id, "admin_graphql_api_id": f"gid://shopify/Order/{order_id}",
-            "name": f"#{order_id}", "total_price": "1499.00",
+            "name": f"#{order_id}", "total_price": "1499.00", "currency": "INR", "customer_locale": "en-IN",
             "payment_gateway_names": ["Cash on Delivery (COD)"], "shipping_address": address}

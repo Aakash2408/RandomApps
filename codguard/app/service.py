@@ -3,22 +3,20 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import secrets
 
-from . import billing, config, crypto, db, notifier, scorer
+from . import billing, config, countries, crypto, db, i18n, notifier, scorer
 from .shopify import Admin, order_gid
 
 log = logging.getLogger("codguard.service")
 
 TAG_PREFIX = "CODGuard"
-_COD_RE = re.compile(r"cash on delivery|\bcod\b")
 
 
 def is_cod(order: dict) -> bool:
-    gateways = [g.lower() for g in order.get("payment_gateway_names") or []]
-    gateways.append((order.get("gateway") or "").lower())
-    return any(_COD_RE.search(g) for g in gateways if g)
+    gateways = list(order.get("payment_gateway_names") or [])
+    gateways.append(order.get("gateway") or "")
+    return any(countries.is_cod_gateway(g) for g in gateways if g)
 
 
 def admin_for(shop_row) -> Admin | None:
@@ -51,21 +49,28 @@ def handle_order_created(shop: str, order: dict, admin: Admin | None = None) -> 
         return "skipped:no_token"
 
     gid = order.get("admin_graphql_api_id") or order_gid(order["id"])
-    phone10 = scorer.normalize_phone(address.get("phone") or order.get("phone"))
-    phash = crypto.phone_hash(shop, phone10)
+    country = countries.normalize_country(address.get("country_code"))
+    raw_phone = address.get("phone") or order.get("phone") or (order.get("customer") or {}).get("phone")
+    e164 = scorer.normalize_phone(raw_phone, country)
+    phash = crypto.phone_hash(shop, e164)
     prior_rto, burst = db.history_for(shop, phash, gid)
+    typical, baseline = db.typical_total(shop)
     total = float(order.get("total_price") or 0)
-    result = scorer.score({**address, "phone": address.get("phone") or order.get("phone")},
-                          order_total=total, history=scorer.History(prior_rto, burst))
+    currency = order.get("currency") or shop_row["currency"] or ""
+    result = scorer.score({**address, "phone": raw_phone}, order_total=total, currency=currency,
+                          history=scorer.History(prior_rto, burst, typical, baseline))
 
     needs_confirm = result.band != "low"
     token = secrets.token_urlsafe(24) if needs_confirm else None
+    locale = order.get("customer_locale") or ""
     check_id = db.insert_check(
         shop=shop, order_gid=gid, order_name=order.get("name") or str(order.get("id")),
         first_name=(address.get("first_name") or "")[:40], phone_hash=phash,
         risk=result.risk, band=result.band, reasons_json=json.dumps(result.to_dict()["reasons"]),
-        address_json=json.dumps({k: address.get(k) for k in ("address1", "address2", "city", "province", "zip")}),
-        total=total, status="flagged" if needs_confirm else "clear", token=token,
+        address_json=json.dumps({k: address.get(k) for k in
+                                 ("address1", "address2", "city", "province", "zip", "country")}),
+        total=total, currency=currency, country=country, locale=locale,
+        status="flagged" if needs_confirm else "clear", token=token,
         token_expires_at=db.now() + config.settings.confirm_ttl_days * 86400 if token else None,
     )
     if check_id is None:
@@ -79,8 +84,8 @@ def handle_order_created(shop: str, order: dict, admin: Admin | None = None) -> 
         log.exception("tagging failed for %s %s", shop, gid)
 
     if needs_confirm:
-        wa = notifier.send_confirmation(phone10, address.get("first_name") or "",
-                                        order.get("name") or "", confirm_link(token))
+        wa = notifier.send_confirmation(e164, address.get("first_name") or "", order.get("name") or "",
+                                        confirm_link(token), i18n.lang_for(locale))
         db.update_check(check_id, wa_status=wa)
     return f"scored:{result.band}"
 
@@ -105,13 +110,13 @@ def _bill(shop_row, admin: Admin, order_name: str, gid: str) -> None:
 ACTIONS = ("confirm", "update", "cancel")
 
 
-def customer_response(check, action: str, landmark: str = "", admin: Admin | None = None) -> str:
+def customer_response(check, action: str, details: str = "", admin: Admin | None = None) -> str:
     if action not in ACTIONS:
         raise ValueError("unknown action")
     admin = admin or admin_for(db.get_shop(check["shop"]))
-    landmark = " ".join(landmark.split())[:120]
-    if action == "update" and not landmark:
-        raise ValueError("landmark required")
+    details = " ".join(details.split())[:120]
+    if action == "update" and not details:
+        raise ValueError("details required")
 
     status = {"confirm": "confirmed", "update": "updated", "cancel": "cancel_requested"}[action]
     tag = {"confirm": "confirmed", "update": "address-updated", "cancel": "cancel-requested"}[action]
@@ -123,7 +128,7 @@ def customer_response(check, action: str, landmark: str = "", admin: Admin | Non
         admin.add_tags(check["order_gid"], [f"{TAG_PREFIX}-{tag}"])
         if action == "update":
             addr = json.loads(check["address_json"] or "{}")
-            new2 = " ".join(filter(None, [addr.get("address2"), f"Landmark: {landmark}"]))
+            new2 = " ".join(filter(None, [addr.get("address2"), f"Courier note: {details}"]))
             admin.update_order(check["order_gid"], address2=new2[:255])
     except Exception:
         log.exception("could not write customer response back to %s", check["order_gid"])
