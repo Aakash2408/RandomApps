@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Refuse a commit while any touched app's test suite is red.
+# Setup per clone: git config core.hooksPath .githooks
+#
+# Each top-level directory is an independent app. An app is tested when a staged
+# path is inside it; it must have its own .venv (see that app's requirements-dev.txt).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if grep -qE '(^|/)\.env$' <<<"$staged"; then
+  echo "pre-commit: refusing to commit a .env file" >&2
+  exit 1
+fi
+
+for app in $(grep '/' <<<"$staged" | cut -d/ -f1 | sort -u); do
+  [[ -d $app/tests ]] || continue
+  py=$app/.venv/bin/python
+  if [[ ! -x $py ]]; then
+    echo "pre-commit: $app has no .venv -- run: cd $app && python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt" >&2
+    exit 1
+  fi
+  echo "pre-commit: testing $app"
+  (cd "$app" && .venv/bin/python -B -m pytest -q -p no:cacheprovider)
+done
