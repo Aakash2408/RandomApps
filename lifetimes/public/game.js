@@ -496,25 +496,77 @@ function load() {
 }
 
 // ---------- rendering ----------
+const FLAGS = { 'United States': '🇺🇸', 'India': '🇮🇳', 'United Kingdom': '🇬🇧', 'Brazil': '🇧🇷', 'Nigeria': '🇳🇬', 'Japan': '🇯🇵', 'Mexico': '🇲🇽', 'United Arab Emirates': '🇦🇪' };
+function avatar(x) {
+  if (!x.alive) return '🪦';
+  const f = x.gender === 'f';
+  if (x.age < 3) return '👶';
+  if (x.age < 13) return f ? '👧' : '👦';
+  if (x.age < 60) return f ? '👩' : '👨';
+  return f ? '👵' : '👴';
+}
+
+let lastStats = null, lastAge = null, lastId = null;
 function render() {
   if (!P) return;
+  $('#avatar').textContent = avatar(P);
   $('#who').textContent = fullName(P);
-  $('#meta').textContent = `${P.alive ? 'Age ' + P.age : 'Died at ' + P.age} · ${P.country}${P.generation > 1 ? ' · Gen ' + P.generation : ''}`;
+  $('#meta').textContent = `${FLAGS[P.country] || '🌍'} ${P.alive ? 'Age ' + P.age : 'Died at ' + P.age} · ${P.country}${P.generation > 1 ? ' · Gen ' + P.generation : ''}`;
   $('#cash').textContent = money(P.cash);
+  $('#cash').classList.toggle('neg', P.cash < 0);
   $('#cash').title = `Net worth ${money(netWorth())}${P.debt ? ' · Debt ' + money(P.debt) : ''}`;
+  // A new person (birth, heir) resets the comparison so their starting stats don't flash as changes.
+  const samePerson = lastId === P.id;
   for (const k of ['happy', 'health', 'smarts', 'looks']) {
     const v = P.s[k];
     const bar = $(`#bar-${k}`); bar.style.width = v + '%'; bar.className = 'fill ' + (v < 25 ? 'lo' : v < 55 ? 'mid' : 'hi');
     $(`#val-${k}`).textContent = v + '%';
     $(`#stat-${k}`).setAttribute('aria-valuenow', v);
+    const d = samePerson && lastStats ? v - lastStats[k] : 0;
+    if (d) {
+      const tile = $(`#stat-${k}`);
+      tile.querySelector('.delta')?.remove();
+      const el = document.createElement('span');
+      el.className = 'delta ' + (d > 0 ? 'up' : 'down'); el.setAttribute('aria-hidden', 'true');
+      el.textContent = (d > 0 ? '+' : '') + d;
+      tile.appendChild(el); setTimeout(() => el.remove(), 1500);
+    }
   }
-  const L = $('#log');
-  L.innerHTML = P.log.slice(-160).map((e) => e.kind === 'year' ? `<h3>${esc(e.text)}</h3>` : `<p class="${esc(e.kind)}">${esc(e.text)}</p>`).join('');
-  L.scrollTop = L.scrollHeight;
-  $('#actions-left').textContent = P.alive ? `${maxActions() - P.actionsUsed} of ${maxActions()} actions left this year` : '';
+  lastStats = { ...P.s }; lastId = P.id;
+  renderLog();
+  const left = maxActions() - P.actionsUsed;
+  $('#actions-left').innerHTML = P.alive ? `<span class="pips" aria-hidden="true">${'●'.repeat(Math.max(0, left))}<i>${'●'.repeat(Math.max(0, P.actionsUsed))}</i></span>${left} of ${maxActions()} actions left` : '';
   $('#age-btn').disabled = !!pendingChoice;
-  $('#age-btn').textContent = P.alive ? 'Age +1' : 'New life';
+  $('#age-btn').innerHTML = P.alive ? 'Age<br>+1' : 'New<br>life';
+  $('#age-btn').setAttribute('aria-label', P.alive ? 'Age +1' : 'New life');
   if (pendingChoice) openChoice(); else if ($('#sheet').dataset.kind === 'choice') closeSheet();
+}
+
+// The story is grouped into one card per year, newest highlighted.
+function renderLog() {
+  const groups = []; let cur = null;
+  for (const e of P.log.slice(-160)) {
+    if (e.kind === 'year') { cur = { label: e.text, age: e.age, rows: [] }; groups.push(cur); continue; }
+    if (!cur) { cur = { label: P.generation > 1 && e.age > 0 ? 'Earlier' : 'Birth', age: e.age, rows: [] }; groups.push(cur); }
+    cur.rows.push(e);
+  }
+  const fresh = lastAge !== P.age; lastAge = P.age;
+  // Fold runs of uneventful years (not the current one) into a single slim row.
+  const view = [];
+  groups.forEach((g, i) => {
+    const prev = view[view.length - 1];
+    if (!g.rows.length && i < groups.length - 1) {
+      if (prev && prev.quiet) prev.to = g.age; else view.push({ quiet: true, from: g.age, to: g.age });
+    } else view.push(g);
+  });
+  const L = $('#log');
+  L.innerHTML = view.map((g, i) => {
+    if (g.quiet) return `<div class="yr-quiet">${g.from === g.to ? `Age ${esc(g.from)}` : `Ages ${esc(g.from)}–${esc(g.to)}`} · quiet ${g.from === g.to ? 'year' : 'years'}</div>`;
+    const now = i === view.length - 1;
+    const rows = g.rows.length ? g.rows.map((e) => `<p class="ev ${esc(e.kind)}">${esc(e.text)}</p>`).join('') : '<p class="ev quiet">A quiet year.</p>';
+    return `<article class="yr${now ? ' now' : ''}${now && fresh ? ' enter' : ''}"><div class="yr-badge" aria-hidden="true">${esc(g.age)}</div><div class="yr-body"><div class="yr-label">${esc(g.label)}</div>${rows}</div></article>`;
+  }).join('');
+  L.scrollTop = L.scrollHeight;
 }
 
 function sheet(kind, title, html) {
@@ -537,39 +589,44 @@ function closeSheet() {
   if (!P) openStart(); else if (!P.alive) openDeath();
 }
 
-function btn(label, action, attrs = '') { return `<button type="button" class="opt" data-act="${esc(action)}" ${attrs}>${esc(label)}</button>`; }
+function btn(label, action, attrs = '', cls = '') { return `<button type="button" class="opt${cls ? ' ' + cls : ''}" data-act="${esc(action)}" ${attrs}>${esc(label)}</button>`; }
 
 function openChoice() {
-  sheet('choice', 'Decision', `<p class="prompt">${esc(pendingChoice.text)}</p>` + pendingChoice.options.map((o, i) => btn(o.label, `choice:${i}`)).join(''));
+  sheet('choice', 'Decision', `<div class="decision"><div class="big" aria-hidden="true">🤔</div><p class="prompt">${esc(pendingChoice.text)}</p></div>` + pendingChoice.options.map((o, i) => btn(o.label, `choice:${i}`)).join(''));
 }
 
+const ACT_ICONS = { 'Study': '📚', 'Work out': '🏋️', 'Meditate': '🧘', 'Party': '🎉', 'See a doctor': '🩺', 'Go on vacation': '✈️', 'Find love': '💘', 'Buy a lottery ticket': '🎟️', 'Shoplift': '🕶️' };
 function openActivities() {
   if (!P.alive) return;
   const list = ACTIVITIES.filter((a) => P.age >= a.min && (!a.when || a.when()));
-  sheet('acts', 'Activities', `<p class="note">${maxActions() - P.actionsUsed} actions left this year.</p>` + (list.length ? list.map((a) => btn(a.label, `act:${ACTIVITIES.indexOf(a)}`)).join('') : '<p>You are too young for activities. Age up!</p>'));
+  const left = maxActions() - P.actionsUsed;
+  const tiles = list.map((a) => {
+    const m = a.label.match(/^(.*?)(?: \((.*)\))?$/);
+    return `<button type="button" class="opt tile" data-act="act:${ACTIVITIES.indexOf(a)}" aria-label="${esc(a.label)}"><span class="ic" aria-hidden="true">${ACT_ICONS[m[1]] || '🎯'}</span><span>${esc(m[1])}</span>${m[2] ? `<small>${esc(m[2])}</small>` : ''}</button>`;
+  }).join('');
+  sheet('acts', 'Activities', `<p class="note">${left} action${left === 1 ? '' : 's'} left this year.</p>` + (list.length ? `<div class="grid">${tiles}</div>` : '<p>You are too young for activities. Age up!</p>'));
 }
 
 function openCareer() {
   if (!P.alive) return;
   let h = '';
   const edu = Object.keys(P.edu).map((k) => EDU_LABEL[k]).join(', ') || 'None yet';
-  h += `<p><b>Education:</b> ${esc(edu)}${P.school ? ` · <i>currently studying (${esc(P.school === 'school' ? 'school' : EDU_LABEL[P.school] || P.school)})</i>` : ''}</p>`;
-  if (P.debt) h += `<p><b>Debt:</b> ${money(P.debt)}</p>`;
+  h += `<div class="card"><div class="note">🎓 Education</div><b>${esc(edu)}</b>${P.school ? `<div class="note">Currently studying: ${esc(P.school === 'school' ? 'school' : EDU_LABEL[P.school] || P.school)}</div>` : ''}${P.debt ? `<div class="note">Debt: ${money(P.debt)}</div>` : ''}</div>`;
   if (P.job) {
-    h += `<p><b>Job:</b> ${esc(jobTitle())} · ${money(salary())}/year · ${P.job.years} yr${P.job.years === 1 ? '' : 's'}</p>`;
-    h += btn('Work harder (1 action)', 'work') + btn('Quit job', 'quit');
-    if (P.age >= 60) h += btn('Retire', 'retire');
+    h += `<div class="card"><div class="note">💼 Current job</div><b>${esc(jobTitle())}</b><div class="note">${money(salary())}/year · ${P.job.years} yr${P.job.years === 1 ? '' : 's'}</div></div>`;
+    h += btn('💪 Work harder (1 action)', 'work') + btn('Quit job', 'quit', '', 'ghost');
+    if (P.age >= 60) h += btn('🏖️ Retire', 'retire');
   } else if (P.retired) {
-    h += `<p>You are retired. Pension: ${money(P.pension)}/year.</p>`;
+    h += `<div class="card"><div class="note">🏖️ Retired</div><b>Pension ${money(P.pension)}/year</b></div>`;
   }
-  if (P.age >= 22 && !P.edu.degree && !P.school) h += btn('Go back to university (4 years)', 'school');
+  if (P.age >= 22 && !P.edu.degree && !P.school) h += btn('🎓 Go back to university (4 years)', 'school');
   if (P.age >= 16 && !P.job) {
     h += '<h4>Job openings</h4>';
     const opts = CAREERS.filter((c) => (P.school === 'school' ? !c.edu && c.id !== 'music' : true));
     for (const c of opts) {
       const ok = eduOk(c.edu);
-      h += `<div class="job"><div><b>${esc(c.ladder[0][0])}</b> <span class="note">${esc(c.name)} · ${money(c.ladder[0][1])}/yr${c.edu ? ' · needs ' + esc(EDU_LABEL[c.edu].toLowerCase()) : ''}</span></div>` +
-        (ok ? btn('Apply (1 action)', `apply:${c.id}`, 'style="width:auto"') : '<span class="note">Not qualified</span>') + '</div>';
+      h += `<div class="job"><div><b>${esc(c.ladder[0][0])}</b><div class="note">${esc(c.name)} · ${money(c.ladder[0][1])}/yr${c.edu ? ' · needs ' + esc(EDU_LABEL[c.edu].toLowerCase()) : ''}</div></div>` +
+        (ok ? btn('Apply', `apply:${c.id}`, 'style="width:auto" aria-label="Apply for ' + esc(c.ladder[0][0]) + ' (1 action)"') : '<span class="note">🔒 Not qualified</span>') + '</div>';
     }
   } else if (P.age < 16) h += '<p class="note">You can look for work at 16.</p>';
   sheet('career', 'Career & education', h);
@@ -580,13 +637,13 @@ function openPeople() {
   const groups = P.people.slice().sort((a, b) => (b.alive - a.alive));
   for (const x of groups) {
     const idx = P.people.indexOf(x);
-    h += `<div class="person${x.alive ? '' : ' dead'}"><div><b>${esc(fullName(x))}</b> <span class="note">${esc(x.rel)} · ${x.alive ? 'age ' + x.age : 'deceased'}</span>` +
-      (x.alive ? `<div class="mini"><span style="width:${x.bond}%"></span></div>` : '') + '</div>';
+    h += `<div class="person${x.alive ? '' : ' dead'}"><div class="pav" aria-hidden="true">${avatar(x)}</div><div><b>${esc(fullName(x))}</b><span class="rel">${esc(x.rel)}</span><div class="note">${x.alive ? 'Age ' + x.age + ' · bond ' + x.bond + '%' : 'Deceased'}</div>` +
+      (x.alive ? `<div class="mini" aria-hidden="true"><span style="width:${x.bond}%"></span></div>` : '') + '</div>';
     if (x.alive && P.alive && !['Ex', 'Ex-spouse'].includes(x.rel)) {
-      h += '<div class="row">' + btn('Spend time', `time:${idx}`);
-      if (x.rel === 'Partner' && P.age >= 18 && x.years >= 1) h += btn('Propose', `propose:${idx}`);
-      if (x.rel === 'Partner' || x.rel === 'Spouse') { h += btn(x.rel === 'Spouse' ? 'Divorce' : 'Break up', `break:${idx}`); }
-      if (x.rel === 'Spouse' && P.age <= 60) h += btn('Try for a baby', `baby:${idx}`);
+      h += '<div class="row">' + btn('☕ Spend time', `time:${idx}`);
+      if (x.rel === 'Partner' && P.age >= 18 && x.years >= 1) h += btn('💍 Propose', `propose:${idx}`);
+      if (x.rel === 'Partner' || x.rel === 'Spouse') { h += btn(x.rel === 'Spouse' ? '💔 Divorce' : '💔 Break up', `break:${idx}`); }
+      if (x.rel === 'Spouse' && P.age <= 60) h += btn('🍼 Try for a baby', `baby:${idx}`);
       h += '</div>';
     }
     h += '</div>';
@@ -594,46 +651,50 @@ function openPeople() {
   sheet('people', 'Relationships', h || '<p>No one yet.</p>');
 }
 
+const SHOP_ICONS = { car: '🚗', home: '🏡' };
 function openAssets() {
-  let h = `<p><b>Cash:</b> ${money(P.cash)} · <b>Debt:</b> ${money(P.debt)} · <b>Net worth:</b> ${money(netWorth())}</p>`;
-  if (P.assets.length) { h += '<h4>You own</h4>'; P.assets.forEach((a, i) => { h += `<div class="job"><div><b>${esc(a.name)}</b> <span class="note">worth ${money(a.value)}</span></div>${P.alive ? btn('Sell', `sell:${i}`, 'style="width:auto"') : ''}</div>`; }); }
-  if (P.alive && P.age >= 18) { h += '<h4>Shop</h4>'; SHOP.forEach((s, i) => { h += `<div class="job"><div><b>${esc(s.name)}</b> <span class="note">${money(s.price)}${s.kind === 'home' ? ' · 20% deposit' : ''}</span></div>${btn('Buy', `buy:${i}`, 'style="width:auto"')}</div>`; }); }
+  let h = `<div class="kv"><div><small>Cash</small><b>${money(P.cash)}</b></div><div><small>Debt</small><b>${money(P.debt)}</b></div><div><small>Net worth</small><b>${money(netWorth())}</b></div></div>`;
+  if (P.assets.length) { h += '<h4>You own</h4>'; P.assets.forEach((a, i) => { h += `<div class="job"><div><b>${SHOP_ICONS[a.kind] || '📦'} ${esc(a.name)}</b><div class="note">Worth ${money(a.value)}</div></div>${P.alive ? btn('Sell', `sell:${i}`, 'style="width:auto"') : ''}</div>`; }); }
+  if (P.alive && P.age >= 18) { h += '<h4>Shop</h4>'; SHOP.forEach((s, i) => { h += `<div class="job"><div><b>${SHOP_ICONS[s.kind] || '📦'} ${esc(s.name)}</b><div class="note">${money(s.price)}${s.kind === 'home' ? ' · 20% deposit' : ''}</div></div>${btn('Buy', `buy:${i}`, 'style="width:auto"')}</div>`; }); }
   else if (P.alive) h += '<p class="note">You can buy things from age 18.</p>';
   sheet('assets', 'Money & assets', h);
 }
 
 function openEditor() {
   if (!owned.editor) return openStore('editor');
-  let h = '<p class="note">Destiny Editor: set your stats.</p>';
-  for (const k of ['happy', 'health', 'smarts', 'looks']) h += `<label for="ed-${k}">${k[0].toUpperCase() + k.slice(1)} <output id="out-${k}">${P.s[k]}</output></label><input type="range" id="ed-${k}" min="0" max="100" value="${P.s[k]}">`;
-  h += btn('Save', 'edsave');
+  let h = '<p class="note">Rewrite your destiny. Drag to set each stat.</p>';
+  const icons = { happy: '😊', health: '❤️', smarts: '🧠', looks: '✨' };
+  for (const k of ['happy', 'health', 'smarts', 'looks']) h += `<label for="ed-${k}">${icons[k]} ${k[0].toUpperCase() + k.slice(1)} <output id="out-${k}">${P.s[k]}</output></label><input type="range" id="ed-${k}" min="0" max="100" value="${P.s[k]}">`;
+  h += btn('Save', 'edsave', '', 'primary');
   sheet('editor', 'Destiny Editor', h);
   for (const k of ['happy', 'health', 'smarts', 'looks']) $(`#ed-${k}`).addEventListener('input', (e) => { $(`#out-${k}`).textContent = e.target.value; });
 }
 
 function openDeath() {
-  const ach = P.achievements.map((a) => ACHIEVEMENTS[a]).join(', ') || 'None';
-  let h = `<p class="prompt">${esc(fullName(P))} died at age ${P.age} from ${esc(P.causeOfDeath)}.</p>
-  <p><b>Net worth:</b> ${money(netWorth())}<br><b>Career:</b> ${esc(P.job ? jobTitle() : P.retired ? 'Retired' : 'None')}<br><b>Achievements:</b> ${esc(ach)}</p>`;
-  for (const k of livingKids()) h += btn(`Continue as ${k.first} (${k.rel.toLowerCase()}, age ${k.age})`, `heir:${P.people.indexOf(k)}`);
-  if (history.length) h += owned.rewind ? btn('Second Chance: rewind up to 5 years', 'rewind') : btn('Second Chance: rewind time ⭐', 'store:rewind');
-  h += btn('Start a new life', 'newlife');
+  const ach = P.achievements.map((a) => `<span>🏆 ${esc(ACHIEVEMENTS[a])}</span>`).join('');
+  let h = `<div class="grave"><div class="big" aria-hidden="true">🪦</div><h3>${esc(fullName(P))}</h3><div class="note">Age ${P.age} · ${esc(P.causeOfDeath)}</div>
+  <div class="kv"><div><small>Net worth</small><b>${money(netWorth())}</b></div><div><small>Career</small><b>${esc(P.job ? jobTitle() : P.retired ? 'Retired' : 'None')}</b></div><div><small>Kids</small><b>${kids().length}</b></div></div>
+  ${ach ? `<div class="badges">${ach}</div>` : '<div class="note">No achievements this life.</div>'}</div>`;
+  for (const k of livingKids()) h += btn(`${avatar(k)} Continue as ${k.first} (${k.rel.toLowerCase()}, age ${k.age})`, `heir:${P.people.indexOf(k)}`);
+  if (history.length) h += owned.rewind ? btn('⏪ Second Chance: rewind up to 5 years', 'rewind') : btn('⏪ Second Chance: rewind time ⭐', 'store:rewind');
+  h += btn('Start a new life', 'newlife', '', 'primary');
   sheet('death', 'Rest in peace', h);
 }
 
 // ---------- start screen ----------
+const HERO = '<div class="hero"><div class="big" aria-hidden="true">🌍</div><h3>Live a whole life</h3><p class="note">Grow up, study, work, fall in love and leave a legacy, one year at a time.</p></div>';
 function openStart() {
   const countries = Object.keys(COUNTRIES);
   if (!owned.plus) {
-    sheet('start', 'A new life', `<p class="prompt">You'll be born somewhere random, to a random family.</p>${btn('Be born', 'born')}${btn('⭐ Store', 'store:')}
-      <p class="note">Want to pick your name, country and gender? That's part of <button type="button" class="link" data-act="store:plus">Lifetimes Plus</button>.</p>`);
+    sheet('start', 'A new life', `${HERO}<p class="prompt" style="text-align:center">You'll be born somewhere random, to a random family.</p>${btn('👶 Be born', 'born', '', 'primary')}${btn('⭐ Store', 'store:', '', 'ghost')}
+      <p class="note" style="text-align:center">Want to pick your name, country and gender? That's part of <button type="button" class="link" data-act="store:plus">Lifetimes Plus</button>.</p>`);
     return;
   }
-  sheet('start', 'A new life', `<label for="st-first">First name</label><input id="st-first" maxlength="20" placeholder="random">
-    <label for="st-last">Last name</label><input id="st-last" maxlength="24" placeholder="random">
+  sheet('start', 'A new life', `${HERO}<label for="st-first">First name</label><input id="st-first" maxlength="20" placeholder="Random">
+    <label for="st-last">Last name</label><input id="st-last" maxlength="24" placeholder="Random">
     <label for="st-gender">Gender</label><select id="st-gender"><option value="">Random</option><option value="f">Female</option><option value="m">Male</option></select>
-    <label for="st-country">Country</label><select id="st-country"><option value="">Random</option>${countries.map((c) => `<option>${esc(c)}</option>`).join('')}</select>
-    ${btn('Be born', 'born-plus')}${btn('⭐ Store', 'store:')}`);
+    <label for="st-country">Country</label><select id="st-country"><option value="">Random</option>${countries.map((c) => `<option value="${esc(c)}">${FLAGS[c] || ''} ${esc(c)}</option>`).join('')}</select>
+    <div style="height:.6rem"></div>${btn('👶 Be born', 'born-plus', '', 'primary')}${btn('⭐ Store', 'store:', '', 'ghost')}`);
 }
 
 function born(custom) {
@@ -653,14 +714,15 @@ function born(custom) {
 // ---------- store (in-app purchases) ----------
 let storeConfig = { checkout: {}, prices: {} };
 
+const PACK_ICONS = { plus: '⚡', editor: '🔮', rewind: '⏪' };
 function openStore(focus) {
-  let h = '<p class="note">One-time purchases. They stay on this device; use "Restore" with your license key on others.</p>';
+  let h = '<p class="note">One-time purchases, no subscription. They stay on this device; use "Restore" with your license key on others.</p>';
   for (const [k, p] of Object.entries(PACKS)) {
     const url = storeConfig.checkout[k];
-    h += `<div class="pack${focus === k ? ' focus' : ''}"><div><b>${esc(p.name)}</b> ${storeConfig.prices[k] ? `<span class="price">${esc(storeConfig.prices[k])}</span>` : ''}<p class="note">${esc(p.blurb)}</p></div>` +
-      (owned[k] ? '<span class="owned">Owned ✓</span>' : url ? `<a class="buy" href="${esc(url)}" rel="noopener">Buy</a>` : '<span class="note">Coming soon</span>') + '</div>';
+    h += `<div class="pack${focus === k ? ' focus' : ''}"><div class="pic" aria-hidden="true">${PACK_ICONS[k]}</div><div class="pinfo"><b>${esc(p.name)}</b>${storeConfig.prices[k] ? `<span class="price">${esc(storeConfig.prices[k])}</span>` : ''}<p class="note">${esc(p.blurb)}</p></div>` +
+      (owned[k] ? '<span class="owned">Owned ✓</span>' : url ? `<a class="buy" href="${esc(url)}" rel="noopener">Buy</a>` : '<span class="note">Soon</span>') + '</div>';
   }
-  h += `<h4>Restore a purchase</h4><label for="lk">License key (from your receipt email)</label><input id="lk" autocomplete="off" spellcheck="false">${btn('Restore', 'restore')}<p id="lk-msg" role="status"></p>`;
+  h += `<h4>Restore a purchase</h4><label for="lk">License key (from your receipt email)</label><input id="lk" autocomplete="off" spellcheck="false">${btn('Restore', 'restore', '', 'ghost')}<p id="lk-msg" role="status"></p>`;
   sheet('store', 'Store', h);
 }
 

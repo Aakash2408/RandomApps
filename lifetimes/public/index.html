@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lifetimes: live a whole life, one year at a time</title>
 <meta name="description" content="A free text life simulator. Be born anywhere, grow up, study, work, fall in love, raise a family and leave a legacy.">
-<meta name="theme-color" content="#5b3df5">
+<meta name="theme-color" content="#120e24">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="app">
   <header class="top">
-    <div>
+    <div id="avatar" class="avatar" aria-hidden="true">🌍</div>
+    <div class="id">
       <div id="who" class="who">Lifetimes</div>
       <div id="meta" class="meta"></div>
     </div>
@@ -24,24 +25,25 @@
   <main id="log" class="log" aria-live="polite" aria-label="Life story"></main>
 
   <section class="stats" aria-label="Stats">
-    <div class="stat" id="stat-happy" role="meter" aria-label="Happiness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span>😊 Happiness</span><div class="track"><div class="fill" id="bar-happy"></div></div><b id="val-happy"></b></div>
-    <div class="stat" id="stat-health" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span>❤️ Health</span><div class="track"><div class="fill" id="bar-health"></div></div><b id="val-health"></b></div>
-    <div class="stat" id="stat-smarts" role="meter" aria-label="Smarts" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span>🧠 Smarts</span><div class="track"><div class="fill" id="bar-smarts"></div></div><b id="val-smarts"></b></div>
-    <div class="stat" id="stat-looks" role="meter" aria-label="Looks" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span>✨ Looks</span><div class="track"><div class="fill" id="bar-looks"></div></div><b id="val-looks"></b></div>
+    <div class="stat" id="stat-happy" role="meter" aria-label="Happiness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="st-ic" aria-hidden="true">😊</span><span class="st-name">Happiness</span><b id="val-happy"></b><div class="track"><div class="fill" id="bar-happy"></div></div></div>
+    <div class="stat" id="stat-health" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="st-ic" aria-hidden="true">❤️</span><span class="st-name">Health</span><b id="val-health"></b><div class="track"><div class="fill" id="bar-health"></div></div></div>
+    <div class="stat" id="stat-smarts" role="meter" aria-label="Smarts" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="st-ic" aria-hidden="true">🧠</span><span class="st-name">Smarts</span><b id="val-smarts"></b><div class="track"><div class="fill" id="bar-smarts"></div></div></div>
+    <div class="stat" id="stat-looks" role="meter" aria-label="Looks" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="st-ic" aria-hidden="true">✨</span><span class="st-name">Looks</span><b id="val-looks"></b><div class="track"><div class="fill" id="bar-looks"></div></div></div>
   </section>
 
   <nav class="bar" aria-label="Game">
-    <button type="button" id="nav-career">💼<span>Career</span></button>
-    <button type="button" id="nav-people">👪<span>People</span></button>
+    <button type="button" id="nav-career"><span class="ic" aria-hidden="true">💼</span><span>Career</span></button>
+    <button type="button" id="nav-people"><span class="ic" aria-hidden="true">👪</span><span>People</span></button>
     <button type="button" id="age-btn" class="age">Age +1</button>
-    <button type="button" id="nav-acts">🎯<span>Activities</span></button>
-    <button type="button" id="nav-assets">🏠<span>Money</span></button>
+    <button type="button" id="nav-acts"><span class="ic" aria-hidden="true">🎯</span><span>Activities</span></button>
+    <button type="button" id="nav-assets"><span class="ic" aria-hidden="true">🏠</span><span>Money</span></button>
   </nav>
   <div class="sub"><span id="actions-left"></span><button type="button" id="nav-editor" class="link">🔮 Destiny Editor</button></div>
 </div>
 
 <div id="scrim" class="scrim" hidden></div>
 <div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+  <div class="grip" aria-hidden="true"></div>
   <div class="sheet-head"><h2 id="sheet-title"></h2><button type="button" id="sheet-close" class="close" aria-label="Close">✕</button></div>
   <div id="sheet-body"></div>
 </div>
