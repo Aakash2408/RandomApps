@@ -735,7 +735,7 @@ function openDeath() {
 }
 
 // ---------- start screen ----------
-const HERO = '<div class="hero"><div class="big" aria-hidden="true">🌍</div><h3>Live a whole life</h3><p class="note">Grow up, study, work, fall in love and leave a legacy, one year at a time.</p></div>';
+const HERO = '<div id="install-slot"></div><div class="hero"><div class="big" aria-hidden="true">🌍</div><h3>Live a whole life</h3><p class="note">Grow up, study, work, fall in love and leave a legacy, one year at a time.</p></div>';
 let startMode = 'classic', startChallenge = CONTENT.challenges[0].id;
 function modePicker() {
   const tiles = Object.entries(MODES).map(([k, m]) => `<button type="button" class="opt tile mode-tile" data-act="mode:${k}" aria-pressed="${k === startMode}"><span class="ic" aria-hidden="true">${m.icon}</span><span>${esc(m.name)}</span></button>`).join('');
@@ -765,6 +765,7 @@ function openStart() {
     <label for="st-country">Country</label><select id="st-country"><option value="">Random</option>${countries.map((c) => `<option value="${esc(c)}">${FLAGS[c] || ''} ${esc(c)}</option>`).join('')}</select>
     <div style="height:.6rem"></div>${btn('👶 Be born', 'born-plus', '', 'primary')}<div class="two">${btn('⭐ Store', 'store:', '', 'ghost')}${btn('💬 Chat rooms', 'rooms', '', 'ghost')}</div>`);
   }
+  if (typeof Install !== 'undefined') Install.refresh();
   $('#st-challenge').addEventListener('change', (e) => { startChallenge = e.target.value; $('#ch-desc').textContent = CONTENT.challenges.find((c) => c.id === startChallenge).desc; });
 }
 
@@ -974,6 +975,8 @@ document.addEventListener('click', (e) => {
     case 'store': return openStore(arg);
     case 'mode': SFX.play('tap'); return setMode(arg);
     case 'rooms': return openRooms();
+    case 'install': return Install.prompt();
+    case 'install-x': return Install.dismiss();
     case 'room': chat.room = arg; return showRoom();
     case 'report': return reportMsg(i);
     case 'sharelife': return shareLife();
@@ -985,10 +988,10 @@ document.addEventListener('click', (e) => {
 });
 
 $('#age-btn').addEventListener('click', () => (P && !P.alive ? openDeath() : ageUp()));
-$('#nav-acts').addEventListener('click', openActivities);
-$('#nav-career').addEventListener('click', openCareer);
-$('#nav-people').addEventListener('click', openPeople);
-$('#nav-assets').addEventListener('click', openAssets);
+$('#nav-acts').addEventListener('click', () => { SFX.play('tap'); openActivities(); });
+$('#nav-career').addEventListener('click', () => { SFX.play('tap'); openCareer(); });
+$('#nav-people').addEventListener('click', () => { SFX.play('tap'); openPeople(); });
+$('#nav-assets').addEventListener('click', () => { SFX.play('tap'); openAssets(); });
 $('#nav-editor').addEventListener('click', openEditor);
 $('#nav-store').addEventListener('click', () => openStore());
 $('#nav-rooms').addEventListener('click', () => openRooms());

@@ -15,6 +15,7 @@ Chat rooms are deliberately small and public: a fixed set of rooms, nickname-onl
 """
 from __future__ import annotations
 
+import mimetypes
 import os
 import threading
 import time
@@ -26,6 +27,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import chat
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 PUBLIC = Path(__file__).resolve().parent.parent / "public"
 VALIDATE_URL = "https://api.lemonsqueezy.com/v1/licenses/validate"
@@ -72,6 +75,10 @@ async def _headers(request: Request, call_next):
                             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
     if request.url.path.startswith("/api/"):
         resp.headers.setdefault("Cache-Control", "no-store")
+    elif request.url.path in ("/sw.js", "/", "/index.html", "/manifest.webmanifest"):
+        # Always revalidate so a new release reaches installed copies; the service
+        # worker itself provides the offline copy.
+        resp.headers.setdefault("Cache-Control", "no-cache")
     return resp
 
 

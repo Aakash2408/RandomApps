@@ -84,3 +84,18 @@ def test_unlock_is_rate_limited(client, monkeypatch):
     ls(monkeypatch, valid=False)
     codes = [client.post("/api/unlock", json={"key": KEY}).status_code for _ in range(main.UNLOCKS_PER_HOUR + 1)]
     assert codes[:-1] == [403] * main.UNLOCKS_PER_HOUR and codes[-1] == 429
+
+
+def test_installable_app_files_are_served(client):
+    m = client.get("/manifest.webmanifest")
+    assert m.status_code == 200 and m.headers["content-type"].startswith("application/manifest+json")
+    j = m.json()
+    assert j["display"] == "standalone" and any(i.get("purpose") == "maskable" for i in j["icons"])
+    for icon in j["icons"]:
+        r = client.get(icon["src"])
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.headers["content-type"] and sw.headers["cache-control"] == "no-cache"
+    assert "/api/" in sw.text  # the worker must never cache API calls
+    page = client.get("/")
+    assert '<link rel="manifest"' in page.text and page.headers["cache-control"] == "no-cache"

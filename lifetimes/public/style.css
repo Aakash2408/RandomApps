@@ -194,3 +194,47 @@ p.no { min-height: 1em; margin: .3rem 0 0; font-size: .85rem; }
 .two .opt { margin: .45rem 0 0; }
 .pledge { background: linear-gradient(180deg, #13301f, var(--card)); border: 1px solid #2c6a45; border-radius: var(--r); padding: .65rem .85rem; margin-bottom: .4rem; }
 .pledge b { color: var(--good); }
+
+/* ---------- phone / installed-app polish ---------- */
+html, body { overscroll-behavior: none; }
+body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+button, .chip, .tile, .bar { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.log, .sheet, .chat-list { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.top { padding-top: calc(.9rem + env(safe-area-inset-top)); padding-left: calc(1rem + env(safe-area-inset-left)); padding-right: calc(1rem + env(safe-area-inset-right)); }
+/* 44px minimum touch targets on touch screens */
+@media (pointer: coarse) {
+  .room-btn { width: 2.75rem; height: 2.75rem; font-size: 1rem; }
+  .store-btn { min-height: 2.75rem; }
+  .flag { min-width: 2.75rem; min-height: 2.2rem; }
+  .close { width: 2.75rem; height: 2.75rem; }
+  .link { padding: .35rem 0; }
+  .person .row .opt, .job .opt { min-height: 2.75rem; }
+}
+.bar button:active .ic { transform: scale(.88); }
+.sheet { transition: transform .22s cubic-bezier(.2, .9, .3, 1); touch-action: pan-y; }
+.grip { width: 3rem; height: .35rem; margin: .1rem auto .7rem; cursor: grab; }
+/* Typing in chat on a phone: keep the box visible above the keyboard */
+.chat-list { height: min(42dvh, 22rem); }
+@supports (height: 100svh) { .chat-list { height: min(38svh, 22rem); } }
+
+.install { display: grid; grid-template-columns: auto 1fr auto auto; gap: .55rem; align-items: center; background: linear-gradient(135deg, #2b1f63, #3a1745); border: 1px solid #4b3d8a; border-radius: var(--r); padding: .6rem .7rem; margin-bottom: .4rem; }
+.install > span { font-size: 1.6rem; }
+.install .opt { margin: 0; width: auto; padding: .55rem .9rem; font-size: .9rem; }
+.install .close { width: 2rem; height: 2rem; }
+.steps { padding-left: 1.2rem; line-height: 1.9; }
+
+/* Installed app: no desktop phone-frame chrome, edge to edge */
+@media (display-mode: standalone) { .app { margin: 0; height: 100dvh; border-radius: 0; border: 0; } }
+/* Landscape phones: drop the desktop frame, go edge to edge and compact so the timeline keeps its room */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app { max-width: none; margin: 0; height: 100dvh; border-radius: 0; border: 0; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .top { padding-top: .45rem; padding-bottom: .45rem; }
+  .avatar { width: 2.4rem; height: 2.4rem; font-size: 1.3rem; }
+  .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: .35rem 1rem; }
+  .stat { padding: .3rem .5rem; }
+  .st-name { display: none; }
+  .bar { grid-template-columns: repeat(5, 1fr); }
+  .bar .age { width: 3.4rem; height: 3.4rem; margin-top: -.8rem; font-size: .85rem; }
+  .sub { padding-top: .2rem; padding-bottom: calc(.3rem + env(safe-area-inset-bottom)); }
+  .sheet { max-height: 92dvh; }
+}

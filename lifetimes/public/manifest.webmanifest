@@ -1,0 +1,21 @@
+{
+  "name": "Lifetimes: Life Simulator",
+  "short_name": "Lifetimes",
+  "description": "Live a whole life, one year at a time. Grow up, study, work, fall in love and leave a legacy.",
+  "id": "/",
+  "start_url": "/?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#120e24",
+  "theme_color": "#120e24",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Chat rooms", "url": "/?open=rooms", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
