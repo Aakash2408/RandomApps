@@ -1,4 +1,4 @@
-"""Lifetimes server: serves the static game and verifies in-app purchases.
+"""Lifetimes server: serves the static game, verifies in-app purchases, hosts chat rooms.
 
 Purchases are one-time Lemon Squeezy products with license keys. A key unlocks
 a pack only if Lemon Squeezy says it is valid, not expired/disabled (a refund
@@ -9,6 +9,9 @@ The game itself runs in the browser and saves to localStorage, so unlocks are
 remembered client-side. A determined player can flip that flag in devtools; for
 a single-player game that is an accepted trade-off (no accounts, no backend
 state), and it can never grant anything on another person's device.
+
+Chat rooms are deliberately small and public: a fixed set of rooms, nickname-only
+(no accounts), in memory only, messages expire after 24 hours. See chat.py.
 """
 from __future__ import annotations
 
@@ -22,9 +25,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import chat
+
 PUBLIC = Path(__file__).resolve().parent.parent / "public"
 VALIDATE_URL = "https://api.lemonsqueezy.com/v1/licenses/validate"
-PACKS = ("plus", "editor", "rewind")
+PACKS = ("plus", "editor", "rewind", "careers", "drama")
 USABLE = ("active", "inactive")  # a fresh, never-activated key is "inactive"
 
 
@@ -46,6 +51,14 @@ def store_id() -> str:
     return _env("LEMONSQUEEZY_STORE_ID")
 
 
+def client_ip(request: Request) -> str:
+    """The caller's IP. Behind a proxy, CLIENT_IP_HEADER names the header it sets
+    (last hop, which the proxy appended); otherwise the socket peer."""
+    h = _env("CLIENT_IP_HEADER")
+    ip = request.headers.get(h.lower(), "").split(",")[-1].strip() if h else (request.client.host if request.client else "")
+    return ip or "unknown"
+
+
 app = FastAPI(title="Lifetimes", docs_url=None, redoc_url=None, openapi_url=None)
 
 
@@ -57,6 +70,8 @@ async def _headers(request: Request, call_next):
     resp.headers.setdefault("Content-Security-Policy",
                             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; "
                             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+    if request.url.path.startswith("/api/"):
+        resp.headers.setdefault("Cache-Control", "no-store")
     return resp
 
 
@@ -103,20 +118,24 @@ def _err(msg: str, status: int) -> JSONResponse:
     return JSONResponse({"error": msg}, status_code=status)
 
 
+async def _json(request: Request):
+    try:
+        return await request.json()
+    except Exception:
+        return None
+
+
 @app.post("/api/unlock")
 async def unlock(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
+    body = await _json(request)
+    if body is None:
         return _err("send JSON", 400)
     key = body.get("key") if isinstance(body, dict) else None
     if not isinstance(key, str) or not 8 <= len(key.strip()) <= 100:
         return _err("enter the license key from your receipt email", 400)
     if not store_id() or not pack_variants():
         return _err("the store is not open yet", 503)
-    client = request.headers.get(_env("CLIENT_IP_HEADER").lower(), "").split(",")[-1].strip() \
-        if _env("CLIENT_IP_HEADER") else (request.client.host if request.client else "unknown")
-    if not _rate_ok(client or "unknown"):
+    if not _rate_ok(client_ip(request)):
         return _err("too many attempts, try again later", 429)
     try:
         data = _fetch(key.strip())
@@ -131,6 +150,45 @@ async def unlock(request: Request):
     if not pack:
         return _err("that key is for an unknown item", 403)
     return {"packs": [pack]}
+
+
+# --- chat rooms ---------------------------------------------------------------------
+
+@app.get("/api/rooms")
+def rooms():
+    return {"rooms": chat.board.room_list()}
+
+
+@app.get("/api/rooms/{room}/messages")
+def room_messages(room: str, after: int = 0):
+    if room not in chat.ROOMS:
+        return _err("no such room", 404)
+    return {"messages": chat.board.messages(room, after)}
+
+
+@app.post("/api/rooms/{room}/messages")
+async def room_post(room: str, request: Request):
+    if room not in chat.ROOMS:
+        return _err("no such room", 404)
+    body = await _json(request)
+    if not isinstance(body, dict):
+        return _err("send JSON", 400)
+    try:
+        msg = chat.board.post(room, client_ip(request), body.get("nick"), body.get("text"), body.get("life"))
+    except chat.Rejected as e:
+        return _err(str(e), e.status)
+    return {"message": msg}
+
+
+@app.post("/api/rooms/{room}/messages/{msg_id}/report")
+def room_report(room: str, msg_id: int, request: Request):
+    if room not in chat.ROOMS:
+        return _err("no such room", 404)
+    try:
+        chat.board.report(room, msg_id, client_ip(request))
+    except chat.Rejected as e:
+        return _err(str(e), e.status)
+    return {"ok": True}
 
 
 app.mount("/", StaticFiles(directory=PUBLIC, html=True), name="game")

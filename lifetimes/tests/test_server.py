@@ -9,7 +9,7 @@ KEY = "80e15db5-c796-436b-850c-8f9c98a48abe"
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("LEMONSQUEEZY_STORE_ID", "77")
-    monkeypatch.setenv("LEMONSQUEEZY_PACK_VARIANTS", "1:plus,2:editor,3:rewind,4:bogus")
+    monkeypatch.setenv("LEMONSQUEEZY_PACK_VARIANTS", "1:plus,2:editor,3:rewind,4:bogus,5:careers,6:drama")
     monkeypatch.setenv("CHECKOUT_URL_PLUS", "https://lifetimes.lemonsqueezy.com/buy/plus")
     monkeypatch.setenv("PRICE_PLUS", "$2.99")
     main._hits.clear()
@@ -43,7 +43,7 @@ def test_config_lists_only_configured_checkouts(client):
     assert j == {"checkout": {"plus": "https://lifetimes.lemonsqueezy.com/buy/plus"}, "prices": {"plus": "$2.99"}}
 
 
-@pytest.mark.parametrize("variant,pack", [(1, "plus"), (2, "editor"), (3, "rewind")])
+@pytest.mark.parametrize("variant,pack", [(1, "plus"), (2, "editor"), (3, "rewind"), (5, "careers"), (6, "drama")])
 def test_fresh_key_unlocks_its_pack(client, monkeypatch, variant, pack):
     ls(monkeypatch, variant=variant)
     assert client.post("/api/unlock", json={"key": KEY}).json() == {"packs": [pack]}

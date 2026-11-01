@@ -37,6 +37,7 @@ const CAREERS = [
   { id: 'doctor', name: 'Medicine', edu: 'medical', sm: 75, ladder: [['Resident', 62000], ['Doctor', 215000], ['Surgeon', 390000]] },
   { id: 'law', name: 'Law', edu: 'law', sm: 70, ladder: [['Associate', 98000], ['Senior Associate', 155000], ['Partner', 420000]] },
 ];
+CAREERS.push(...CONTENT.careers);
 const careerById = (id) => CAREERS.find((c) => c.id === id);
 
 const ACHIEVEMENTS = {
@@ -44,14 +45,24 @@ const ACHIEVEMENTS = {
   centenarian: 'Lived to 100', ceo: 'Became a CEO', surgeon: 'Became a surgeon', superstar: 'Became a superstar',
   homeowner: 'Bought a home', lottery: 'Won the lottery', legacy: 'Continued as your child', fit: 'Peak fitness (health 100)',
 };
+Object.assign(ACHIEVEMENTS, CONTENT.achievements);
 
 // ---------- purchases (in-app, verified server-side) ----------
 const PACKS = {
   plus: { name: 'Lifetimes Plus', blurb: '5 actions a year instead of 3, and choose your name, country and gender for every new life.' },
   editor: { name: 'Destiny Editor', blurb: 'Set your happiness, health, smarts and looks any time.' },
-  rewind: { name: 'Second Chance', blurb: 'When you die, rewind up to 5 years and try again. Unlimited uses.' },
+  rewind: { name: 'Second Chance', blurb: 'When you die, rewind up to 5 years and try again. Pay once, rewind forever. Never per use.' },
+  careers: { name: 'Dream Jobs', blurb: '8 extra careers: astronaut, pro athlete, pilot, streamer, politician, detective, fashion designer and game developer.' },
+  drama: { name: 'Life Drama', blurb: '15 big, wild life events: reality TV, haunted mansions, bank robberies, secret siblings, island challenges and more.' },
 };
-const owned = { plus: false, editor: false, rewind: false };
+const owned = { plus: false, editor: false, rewind: false, careers: false, drama: false };
+const MODES = {
+  classic: { icon: '🌱', name: 'Classic', desc: 'Live however you like.' },
+  hardcore: { icon: '💀', name: 'Hardcore', desc: 'One fewer action a year, harsher health, a humbler start. No rewinds, no Destiny Editor.' },
+  challenge: { icon: '🎯', name: 'Challenge', desc: 'Pick a goal and try to hit it in one life.' },
+};
+const isHardcore = () => P && P.mode === 'hardcore';
+const challengeOf = () => (P && P.mode === 'challenge' ? CONTENT.challenges.find((c) => c.id === P.challenge) : null);
 
 // ---------- state ----------
 let P = null;          // the current person
@@ -95,7 +106,7 @@ const kids = () => P.people.filter((x) => x.rel === 'Son' || x.rel === 'Daughter
 const livingKids = () => kids().filter((x) => x.alive);
 const hasHome = () => P.assets.some((a) => a.kind === 'home');
 const netWorth = () => P.cash - P.debt + P.assets.reduce((t, a) => t + a.value, 0);
-const maxActions = () => (owned.plus ? 5 : 3);
+const maxActions = () => (owned.plus ? 5 : 3) - (isHardcore() ? 1 : 0);
 const salary = () => (P.job ? careerById(P.job.career).ladder[P.job.level][1] : 0);
 const jobTitle = () => (P.job ? careerById(P.job.career).ladder[P.job.level][0] : '');
 
@@ -137,7 +148,7 @@ function quietYear() {
   const lines = P.age < 5 ? ['You spent the year napping and exploring.', 'You learned some new words.']
     : P.age < 13 ? ['You played outside a lot this year.', 'You got really into a cartoon.', 'You had a fun summer break.']
     : P.age < 18 ? ['You spent too much time on your phone.', 'You got your first crush.', 'You argued with your parents about curfew.']
-    : P.job ? [`Work as a ${jobTitle()} kept you busy.`, 'It was a steady, ordinary year.', 'You picked up a new hobby.']
+    : P.job ? (careerById(P.job.career).lines || []).concat([`Work as a ${jobTitle()} kept you busy.`, 'You picked up a new hobby.'])
     : P.retired ? ['You enjoyed a slow, peaceful year.', 'You spent time in the garden.'] : ['You spent the year figuring out what to do next.', 'Money was tight this year.'];
   log(pick(lines));
 }
@@ -149,7 +160,7 @@ function yearlyDrift() {
   if (P.age < 18) bump('smarts', rnd(0, 2));
   if (P.debt > P.cash + 20000 && P.age >= 18) { bump('happy', -rnd(1, 4)); }
   if (P.ill) {
-    bump('health', -P.ill.severity);
+    bump('health', -P.ill.severity * (isHardcore() ? 1.5 : 1));
     if (chance(0.25)) { log(`Your ${P.ill.name} cleared up on its own.`, 'good'); P.ill = null; }
   }
   if (s.happy < 20 && chance(0.2)) log('You have been feeling really low lately.', 'bad');
@@ -207,11 +218,13 @@ function finances() {
       if (jobTitle() === 'CEO') unlock('ceo');
       if (jobTitle() === 'Surgeon') unlock('surgeon');
       if (jobTitle() === 'Superstar') unlock('superstar');
+      if (c.top && P.job.level === c.ladder.length - 1) unlock(c.top);
     } else if (P.perf < -2.5 && chance(0.35)) {
       log(`You were fired from your job as ${jobTitle()}.`, 'bad');
       P.job = null; P.perf = 0; bump('happy', -10);
     }
     if (P.job) P.job.years += 1;
+    if (P.job && c.maxAge && P.age > c.maxAge) { log(`At ${P.age}, your body says it's time. You retired from ${c.name.toLowerCase()}.`, 'hint'); P.pension = Math.round(salary() * 0.15); P.retired = true; P.job = null; }
   }
   if (P.retired) P.cash += P.pension;
   if (P.age >= 18 && !P.school && !(P.age < 22 && !P.job && parentsAlive())) {
@@ -268,6 +281,7 @@ function deathCheck() {
   let p = P.age < 2 ? 0.002 : 0.0003 * Math.exp(0.085 * (P.age - 20));
   if (P.s.health < 30) p *= 1 + (30 - P.s.health) / 8;
   if (P.age > 20 && P.s.happy < 10) p *= 1.5;
+  if (isHardcore()) p *= 1.6;
   if (chance(p)) {
     P.causeOfDeath = P.age > 75 ? pick(['old age', 'heart failure', 'a stroke', 'old age']) : pick(['a car accident', 'a heart attack', 'a sudden illness', 'an accident at home']);
     return true;
@@ -277,6 +291,7 @@ function deathCheck() {
 
 function milestones() {
   if (P.age === 100) unlock('centenarian');
+  if (P.age === 80 && isHardcore()) unlock('hardcore80');
   if (P.age === 16) log('You can now look for part-time work and go on dates.', 'hint');
   if (P.age === 65 && P.job) log('You are old enough to retire. Find "Retire" under Career.', 'hint');
 }
@@ -335,13 +350,16 @@ const CHOICES = [
     { label: 'Maybe next year', run: () => (bump('happy', -2), 'The house was quiet.') },
   ] },
 ];
+PASSIVE.push(...CONTENT.passive);
+CHOICES.push(...CONTENT.choices);
 
+const shuffled = (a) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
+const eventOk = (e) => P.age >= e.min && P.age <= e.max && (!e.pack || owned[e.pack]) && (!e.when || e.when());
 function randomEvent() {
   if (pendingChoice) return;
-  const eligible = CHOICES.filter((e) => P.age >= e.min && P.age <= e.max && (!e.when || e.when()));
-  for (const e of eligible) if (chance(e.p)) { choose({ text: e.text(), options: e.options }); return; }
-  const passive = PASSIVE.filter((e) => P.age >= e.min && P.age <= e.max && (!e.when || e.when()));
-  for (const e of passive) if (chance(e.p)) { log(e.run()); return; }
+  // Shuffled so events late in the list get the same shot as early ones.
+  for (const e of shuffled(CHOICES.filter(eventOk))) if (chance(e.p)) { choose({ text: e.text(), options: e.options }); return; }
+  for (const e of shuffled(PASSIVE.filter(eventOk))) if (chance(e.p)) { log(e.run(), e.pack ? 'drama' : ''); return; }
 }
 
 function choose(ev) { pendingChoice = ev; }
@@ -374,6 +392,7 @@ const ACTIVITIES = [
   { label: 'Buy a lottery ticket ($10)', min: 18, run: () => { P.cash -= 10; if (chance(1 / 200000)) { P.cash += 1e6; bump('happy', 25); unlock('lottery'); return 'YOU WON $1,000,000!'; } if (chance(1 / 40)) { P.cash += 100; return 'You won $100.'; } return 'Not a winning ticket.'; } },
   { label: 'Shoplift', min: 10, run: () => { if (chance(0.6)) { bump('happy', 2); return 'You slipped a candy bar into your pocket. Nobody noticed.'; } P.record += 1; bump('happy', -8); if (P.age < 18) return 'You got caught shoplifting. Your parents grounded you for a month.'; P.cash -= 800; return 'You were caught shoplifting and fined $800. It is on your record now.'; } },
 ];
+ACTIVITIES.push(...CONTENT.activities);
 
 function meetSomeone(where) {
   const c = COUNTRIES[P.country];
@@ -389,9 +408,13 @@ function meetSomeone(where) {
 function eduOk(req) { return !req || !!P.edu[req]; }
 
 function applyFor(c) {
+  if (c.pack && !owned[c.pack]) return openStore(c.pack);
   if (!spend()) return;
+  if (c.clean && P.record) { log(`${c.ladder[0][0]}: your criminal record ruled you out.`, 'bad'); closeSheet(); save(); render(); return; }
+  if (c.maxAge && P.age > c.maxAge - 6) { log(`${c.ladder[0][0]}: they said you are too old to start.`, 'bad'); closeSheet(); save(); render(); return; }
   let odds = 0.55 + (P.s.smarts - c.sm) / 120 - P.record * 0.15;
   if (c.looks) odds = 0.35 + (P.s.looks - c.looks) / 100;
+  if (c.hp) odds = Math.min(odds, 0.4 + (P.s.health - c.hp) / 60);
   if (chance(Math.max(0.05, Math.min(0.92, odds)))) {
     P.job = { career: c.id, level: 0, years: 0 }; P.perf = 0; P.retired = false;
     log(`You were hired as a ${c.ladder[0][0]} (${money(c.ladder[0][1])}/year).`, 'good'); bump('happy', 5);
@@ -457,7 +480,7 @@ function finish() {
   P.alive = false;
   pendingChoice = null;
   log(`You died at age ${P.age} from ${P.causeOfDeath}.`, 'bad');
-  save(); render(); openDeath();
+  save(); render(); SFX.play('death'); openDeath();
 }
 
 function continueAs(k) {
@@ -473,6 +496,7 @@ function continueAs(k) {
   if (other) P.people.unshift(person(other.first, other.last, other.gender, other.gender === 'm' ? 'Father' : 'Mother', other.age, rnd(50, 90)));
   for (const sib of prev.people.filter((x) => (x.rel === 'Son' || x.rel === 'Daughter') && x.id !== k.id && x.alive)) P.people.push(person(sib.first, sib.last, sib.gender, sib.gender === 'm' ? 'Brother' : 'Sister', sib.age, rnd(40, 80)));
   if (k.age >= 18) P.edu.hs = true; else if (k.age >= 5) P.school = 'school';
+  P.mode = prev.mode === 'hardcore' ? 'hardcore' : 'classic'; P.challenge = null;
   history = [];
   log(`Generation ${P.generation}: you are ${fullName(P)}, age ${P.age}. You inherited ${money(share)} from ${prev.first}.`, 'good');
   unlock('legacy');
@@ -480,7 +504,7 @@ function continueAs(k) {
 }
 
 function rewind() {
-  if (!owned.rewind || !history.length) return;
+  if (!owned.rewind || !history.length || isHardcore()) return;
   const target = Math.max(0, history.length - 5);
   P = JSON.parse(history[target]);
   history = history.slice(0, target);
@@ -489,7 +513,7 @@ function rewind() {
 }
 
 // ---------- persistence ----------
-function save() { try { localStorage.setItem('lt_save', JSON.stringify({ P, history })); } catch (e) { /* storage full: keep playing */ } }
+function save() { if (P) checkChallenge(); try { localStorage.setItem('lt_save', JSON.stringify({ P, history })); } catch (e) { /* storage full: keep playing */ } }
 function load() {
   try { const d = JSON.parse(localStorage.getItem('lt_save') || 'null'); if (d && d.P) { P = d.P; history = d.history || []; return true; } } catch (e) { /* corrupt save */ }
   return false;
@@ -506,7 +530,17 @@ function avatar(x) {
   return f ? '👵' : '👴';
 }
 
-let lastStats = null, lastAge = null, lastId = null;
+let lastStats = null, lastAge = null, lastId = null, lastLogLen = 0;
+// One sound per render, picked from the most notable thing just logged.
+function soundFor(entries, aged) {
+  const t = entries.map((e) => e.text).join(' ');
+  if (/Achievement unlocked|Challenge complete/.test(t)) return 'achievement';
+  if (/married|said YES|You're dating|was born!|You adopted/.test(t)) return 'love';
+  if (/promoted|You were hired|inherited|WON|bonus|reward/.test(t)) return 'money';
+  if (entries.some((e) => e.kind === 'bad')) return 'bad';
+  if (entries.some((e) => e.kind === 'good')) return 'good';
+  return aged ? 'age' : '';
+}
 function render() {
   if (!P) return;
   $('#avatar').textContent = avatar(P);
@@ -532,8 +566,15 @@ function render() {
       tile.appendChild(el); setTimeout(() => el.remove(), 1500);
     }
   }
+  const aged = samePerson && lastAge !== null && P.age > lastAge;
+  if (samePerson && P.alive && P.log.length > lastLogLen) { const snd = soundFor(P.log.slice(lastLogLen), aged); if (snd) SFX.play(snd); }
+  lastLogLen = P.log.length;
   lastStats = { ...P.s }; lastId = P.id;
   renderLog();
+  const ch = challengeOf(), goal = $('#goal');
+  goal.hidden = !ch && !isHardcore();
+  if (ch) goal.innerHTML = `<span aria-hidden="true">${ch.icon}</span> <b>${esc(ch.name)}</b> · ${P.challengeDone ? '<span class="ok">Complete ✓</span>' : P.challengeFailed ? '<span class="no">Failed</span>' : esc(ch.progress())}`;
+  else if (isHardcore()) goal.innerHTML = '<span aria-hidden="true">💀</span> <b>Hardcore</b> · no rewinds, no editor';
   const left = maxActions() - P.actionsUsed;
   $('#actions-left').innerHTML = P.alive ? `<span class="pips" aria-hidden="true">${'●'.repeat(Math.max(0, left))}<i>${'●'.repeat(Math.max(0, P.actionsUsed))}</i></span>${left} of ${maxActions()} actions left` : '';
   $('#age-btn').disabled = !!pendingChoice;
@@ -570,6 +611,7 @@ function renderLog() {
 }
 
 function sheet(kind, title, html) {
+  if (kind !== 'chat') stopChat();
   const s = $('#sheet');
   s.dataset.kind = kind;
   $('#sheet-title').textContent = title;
@@ -584,6 +626,7 @@ function closeSheet() {
   if (s.dataset.kind === 'choice' && pendingChoice) return;
   if (s.dataset.kind === 'death' && P && !P.alive) return;
   if (s.dataset.kind === 'start' && (!P || !P.alive)) return;
+  stopChat();
   s.hidden = true; $('#scrim').hidden = true; s.dataset.kind = '';
   // Never leave the player on an empty board (e.g. closing the store from the start screen).
   if (!P) openStart(); else if (!P.alive) openDeath();
@@ -592,6 +635,7 @@ function closeSheet() {
 function btn(label, action, attrs = '', cls = '') { return `<button type="button" class="opt${cls ? ' ' + cls : ''}" data-act="${esc(action)}" ${attrs}>${esc(label)}</button>`; }
 
 function openChoice() {
+  if ($('#sheet').dataset.kind !== 'choice') SFX.play('choice');
   sheet('choice', 'Decision', `<div class="decision"><div class="big" aria-hidden="true">🤔</div><p class="prompt">${esc(pendingChoice.text)}</p></div>` + pendingChoice.options.map((o, i) => btn(o.label, `choice:${i}`)).join(''));
 }
 
@@ -602,7 +646,7 @@ function openActivities() {
   const left = maxActions() - P.actionsUsed;
   const tiles = list.map((a) => {
     const m = a.label.match(/^(.*?)(?: \((.*)\))?$/);
-    return `<button type="button" class="opt tile" data-act="act:${ACTIVITIES.indexOf(a)}" aria-label="${esc(a.label)}"><span class="ic" aria-hidden="true">${ACT_ICONS[m[1]] || '🎯'}</span><span>${esc(m[1])}</span>${m[2] ? `<small>${esc(m[2])}</small>` : ''}</button>`;
+    return `<button type="button" class="opt tile" data-act="act:${ACTIVITIES.indexOf(a)}" aria-label="${esc(a.label)}"><span class="ic" aria-hidden="true">${a.icon || ACT_ICONS[m[1]] || '🎯'}</span><span>${esc(m[1])}</span>${m[2] ? `<small>${esc(m[2])}</small>` : ''}</button>`;
   }).join('');
   sheet('acts', 'Activities', `<p class="note">${left} action${left === 1 ? '' : 's'} left this year.</p>` + (list.length ? `<div class="grid">${tiles}</div>` : '<p>You are too young for activities. Age up!</p>'));
 }
@@ -623,11 +667,17 @@ function openCareer() {
   if (P.age >= 16 && !P.job) {
     h += '<h4>Job openings</h4>';
     const opts = CAREERS.filter((c) => (P.school === 'school' ? !c.edu && c.id !== 'music' : true));
-    for (const c of opts) {
+    const free = opts.filter((c) => !c.pack), paid = opts.filter((c) => c.pack);
+    const row = (c) => {
+      const locked = c.pack && !owned[c.pack];
       const ok = eduOk(c.edu);
-      h += `<div class="job"><div><b>${esc(c.ladder[0][0])}</b><div class="note">${esc(c.name)} · ${money(c.ladder[0][1])}/yr${c.edu ? ' · needs ' + esc(EDU_LABEL[c.edu].toLowerCase()) : ''}</div></div>` +
-        (ok ? btn('Apply', `apply:${c.id}`, 'style="width:auto" aria-label="Apply for ' + esc(c.ladder[0][0]) + ' (1 action)"') : '<span class="note">🔒 Not qualified</span>') + '</div>';
-    }
+      const needs = [c.edu ? 'needs ' + EDU_LABEL[c.edu].toLowerCase() : '', c.hp ? 'fit' : '', c.looks ? 'good looks' : '', c.clean ? 'clean record' : ''].filter(Boolean).join(', ');
+      const action = locked ? `<button type="button" class="opt" data-act="store:${esc(c.pack)}" style="width:auto">🔒 Unlock</button>`
+        : ok ? btn('Apply', `apply:${c.id}`, 'style="width:auto" aria-label="Apply for ' + esc(c.ladder[0][0]) + ' (1 action)"') : '<span class="note">🔒 Not qualified</span>';
+      return `<div class="job${locked ? ' locked' : ''}"><div><b>${c.icon ? c.icon + ' ' : ''}${esc(c.ladder[0][0])}</b><div class="note">${esc(c.name)} · ${money(c.ladder[0][1])}/yr${needs ? ' · ' + esc(needs) : ''}</div>${locked ? `<div class="note">Top job: ${esc(c.ladder[c.ladder.length - 1][0])}</div>` : ''}</div>${action}</div>`;
+    };
+    h += free.map(row).join('');
+    if (paid.length) h += `<h4>⭐ Dream Jobs${owned.careers ? '' : ' · <button type="button" class="link" data-act="store:careers">unlock pack</button>'}</h4>` + paid.map(row).join('');
   } else if (P.age < 16) h += '<p class="note">You can look for work at 16.</p>';
   sheet('career', 'Career & education', h);
 }
@@ -661,6 +711,7 @@ function openAssets() {
 }
 
 function openEditor() {
+  if (isHardcore()) { toast('The Destiny Editor is off in Hardcore mode.'); return; }
   if (!owned.editor) return openStore('editor');
   let h = '<p class="note">Rewrite your destiny. Drag to set each stat.</p>';
   const icons = { happy: '😊', health: '❤️', smarts: '🧠', looks: '✨' };
@@ -672,29 +723,49 @@ function openEditor() {
 
 function openDeath() {
   const ach = P.achievements.map((a) => `<span>🏆 ${esc(ACHIEVEMENTS[a])}</span>`).join('');
-  let h = `<div class="grave"><div class="big" aria-hidden="true">🪦</div><h3>${esc(fullName(P))}</h3><div class="note">Age ${P.age} · ${esc(P.causeOfDeath)}</div>
+  let h = `<div class="grave"><div class="big" aria-hidden="true">🪦</div><h3>${esc(fullName(P))}</h3><div class="note">Age ${P.age} · ${esc(P.causeOfDeath)}${P.mode && P.mode !== 'classic' ? ' · ' + MODES[P.mode].icon + ' ' + MODES[P.mode].name : ''}</div>
+  ${challengeOf() ? `<div class="note">${challengeOf().icon} ${esc(challengeOf().name)}: ${P.challengeDone ? '<b class="ok">completed ✓</b>' : '<b class="no">not completed</b>'}</div>` : ''}
   <div class="kv"><div><small>Net worth</small><b>${money(netWorth())}</b></div><div><small>Career</small><b>${esc(P.job ? jobTitle() : P.retired ? 'Retired' : 'None')}</b></div><div><small>Kids</small><b>${kids().length}</b></div></div>
   ${ach ? `<div class="badges">${ach}</div>` : '<div class="note">No achievements this life.</div>'}</div>`;
   for (const k of livingKids()) h += btn(`${avatar(k)} Continue as ${k.first} (${k.rel.toLowerCase()}, age ${k.age})`, `heir:${P.people.indexOf(k)}`);
-  if (history.length) h += owned.rewind ? btn('⏪ Second Chance: rewind up to 5 years', 'rewind') : btn('⏪ Second Chance: rewind time ⭐', 'store:rewind');
+  if (history.length && !isHardcore()) h += owned.rewind ? btn('⏪ Second Chance: rewind up to 5 years', 'rewind') : btn('⏪ Second Chance: rewind time ⭐', 'store:rewind');
+  h += btn('📖 Share this life in the Life stories room', 'sharelife');
   h += btn('Start a new life', 'newlife', '', 'primary');
   sheet('death', 'Rest in peace', h);
 }
 
 // ---------- start screen ----------
 const HERO = '<div class="hero"><div class="big" aria-hidden="true">🌍</div><h3>Live a whole life</h3><p class="note">Grow up, study, work, fall in love and leave a legacy, one year at a time.</p></div>';
+let startMode = 'classic', startChallenge = CONTENT.challenges[0].id;
+function modePicker() {
+  const tiles = Object.entries(MODES).map(([k, m]) => `<button type="button" class="opt tile mode-tile" data-act="mode:${k}" aria-pressed="${k === startMode}"><span class="ic" aria-hidden="true">${m.icon}</span><span>${esc(m.name)}</span></button>`).join('');
+  const done = doneChallenges();
+  const ch = CONTENT.challenges.map((c) => `<option value="${c.id}"${c.id === startChallenge ? ' selected' : ''}>${c.icon} ${esc(c.name)}${done.includes(c.id) ? ' ✓' : ''}</option>`).join('');
+  return `<h4>Game mode</h4><div class="grid" role="group" aria-label="Game mode">${tiles}</div><p id="mode-desc" class="note">${esc(MODES[startMode].desc)}</p>
+    <div id="ch-pick"${startMode === 'challenge' ? '' : ' hidden'}><label for="st-challenge">Challenge</label><select id="st-challenge">${ch}</select><p id="ch-desc" class="note">${esc(CONTENT.challenges.find((c) => c.id === startChallenge).desc)}</p></div>`;
+}
+function setMode(m) {
+  if (!MODES[m]) return;
+  startMode = m;
+  document.querySelectorAll('.mode-tile').forEach((t) => t.setAttribute('aria-pressed', t.dataset.act === 'mode:' + m));
+  $('#mode-desc').textContent = MODES[m].desc;
+  $('#ch-pick').hidden = m !== 'challenge';
+}
+function doneChallenges() { try { return JSON.parse(localStorage.getItem('lt_challenges') || '[]'); } catch (e) { return []; } }
+
 function openStart() {
   const countries = Object.keys(COUNTRIES);
   if (!owned.plus) {
-    sheet('start', 'A new life', `${HERO}<p class="prompt" style="text-align:center">You'll be born somewhere random, to a random family.</p>${btn('👶 Be born', 'born', '', 'primary')}${btn('⭐ Store', 'store:', '', 'ghost')}
-      <p class="note" style="text-align:center">Want to pick your name, country and gender? That's part of <button type="button" class="link" data-act="store:plus">Lifetimes Plus</button>.</p>`);
-    return;
-  }
-  sheet('start', 'A new life', `${HERO}<label for="st-first">First name</label><input id="st-first" maxlength="20" placeholder="Random">
+    sheet('start', 'A new life', `${HERO}${modePicker()}<div style="height:.6rem"></div>${btn('👶 Be born', 'born', '', 'primary')}<div class="two">${btn('⭐ Store', 'store:', '', 'ghost')}${btn('💬 Chat rooms', 'rooms', '', 'ghost')}</div>
+      <p class="note" style="text-align:center">You'll be born somewhere random. Want to pick your name, country and gender? That's part of <button type="button" class="link" data-act="store:plus">Lifetimes Plus</button>.</p>`);
+  } else {
+    sheet('start', 'A new life', `${HERO}${modePicker()}<h4>Who you'll be</h4><label for="st-first">First name</label><input id="st-first" maxlength="20" placeholder="Random">
     <label for="st-last">Last name</label><input id="st-last" maxlength="24" placeholder="Random">
     <label for="st-gender">Gender</label><select id="st-gender"><option value="">Random</option><option value="f">Female</option><option value="m">Male</option></select>
     <label for="st-country">Country</label><select id="st-country"><option value="">Random</option>${countries.map((c) => `<option value="${esc(c)}">${FLAGS[c] || ''} ${esc(c)}</option>`).join('')}</select>
-    <div style="height:.6rem"></div>${btn('👶 Be born', 'born-plus', '', 'primary')}${btn('⭐ Store', 'store:', '', 'ghost')}`);
+    <div style="height:.6rem"></div>${btn('👶 Be born', 'born-plus', '', 'primary')}<div class="two">${btn('⭐ Store', 'store:', '', 'ghost')}${btn('💬 Chat rooms', 'rooms', '', 'ghost')}</div>`);
+  }
+  $('#st-challenge').addEventListener('change', (e) => { startChallenge = e.target.value; $('#ch-desc').textContent = CONTENT.challenges.find((c) => c.id === startChallenge).desc; });
 }
 
 function born(custom) {
@@ -703,20 +774,42 @@ function born(custom) {
     const f = $('#st-first').value.trim(), l = $('#st-last').value.trim(), g = $('#st-gender').value, c = $('#st-country').value;
     if (f) o.first = f.slice(0, 20); if (l) o.last = l.slice(0, 24); if (g) o.gender = g; if (c && COUNTRIES[c]) o.country = c;
   }
+  const ch = startMode === 'challenge' ? CONTENT.challenges.find((c) => c.id === startChallenge) : null;
+  if (startMode === 'hardcore') o.wealth = pick([0, 0, 1]);
+  if (ch && ch.wealth !== undefined) o.wealth = ch.wealth;
   P = newPerson(o); history = []; pendingChoice = null;
+  P.mode = startMode; P.challenge = ch ? ch.id : null;
   const w = ['a struggling', 'a working-class', 'a comfortable middle-class', 'a wealthy'][P.wealth];
   log(`You were born a ${P.gender === 'm' ? 'boy' : 'girl'} in ${P.country} to ${w} family.`);
   const mom = P.people[0], dad = P.people[1];
   log(`Your mother is ${fullName(mom)} (${mom.age}) and your father is ${fullName(dad)} (${dad.age}).`);
-  closeSheet(); save(); render();
+  if (ch) log(`Challenge: ${ch.name}. ${ch.desc}`, 'hint');
+  if (P.mode === 'hardcore') log('Hardcore mode: no rewinds, no Destiny Editor. Good luck.', 'hint');
+  closeSheet(); save(); render(); SFX.play('birth');
+}
+
+// Challenge progress is checked whenever the game saves (after every year, action and decision).
+function checkChallenge() {
+  const ch = challengeOf();
+  if (!ch || P.challengeDone || P.challengeFailed) return;
+  if (ch.done()) {
+    P.challengeDone = true;
+    log(`🎯 Challenge complete: ${ch.name}!`, 'good');
+    unlock('challenge');
+    const d = doneChallenges(); if (!d.includes(ch.id)) { d.push(ch.id); localStorage.setItem('lt_challenges', JSON.stringify(d)); }
+    toast(`🎯 Challenge complete: ${ch.name}!`, true);
+  } else if ((ch.fail && ch.fail()) || !P.alive) {
+    P.challengeFailed = true;
+    log(`Challenge failed: ${ch.name}.`, 'bad');
+  }
 }
 
 // ---------- store (in-app purchases) ----------
 let storeConfig = { checkout: {}, prices: {} };
 
-const PACK_ICONS = { plus: '⚡', editor: '🔮', rewind: '⏪' };
+const PACK_ICONS = { plus: '⚡', editor: '🔮', rewind: '⏪', careers: '🚀', drama: '🎭' };
 function openStore(focus) {
-  let h = '<p class="note">One-time purchases, no subscription. They stay on this device; use "Restore" with your license key on others.</p>';
+  let h = '<div class="pledge"><b>🤝 Fair Price Pledge</b><p class="note">Every pack is a one-time purchase. Buying everything costs under $12, with no subscriptions, no pay-per-use rewinds and no choices locked behind ads. The base game is complete and free. Purchases stay on this device; use "Restore" with your license key on another.</p></div>';
   for (const [k, p] of Object.entries(PACKS)) {
     const url = storeConfig.checkout[k];
     h += `<div class="pack${focus === k ? ' focus' : ''}"><div class="pic" aria-hidden="true">${PACK_ICONS[k]}</div><div class="pinfo"><b>${esc(p.name)}</b>${storeConfig.prices[k] ? `<span class="price">${esc(storeConfig.prices[k])}</span>` : ''}<p class="note">${esc(p.blurb)}</p></div>` +
@@ -735,7 +828,8 @@ async function redeem(key, quiet) {
   for (const p of j.packs || []) if (p in owned) owned[p] = true;
   const ks = keys(); if (!ks.includes(key)) { ks.push(key); localStorage.setItem('lt_keys', JSON.stringify(ks)); }
   localStorage.setItem('lt_owned', JSON.stringify(owned));
-  if (!quiet) toast(`Unlocked: ${(j.packs || []).map((p) => PACKS[p]?.name).join(', ')}. Thank you!`);
+  if (!quiet) SFX.play('achievement');
+  if (!quiet) toast(`Unlocked: ${(j.packs || []).map((p) => PACKS[p]?.name).join(', ')}. Thank you!`, true);
   return true;
 }
 
@@ -749,9 +843,109 @@ async function initStore() {
 }
 function history_replace(url) { window.history.replaceState(null, '', url.pathname + (url.search || '') + url.hash); }
 
+// ---------- chat rooms ----------
+// Public rooms on our own server. Everything a stranger sends is rendered with esc(), never as HTML.
+const chat = { room: 'general', lastId: 0, timer: null, mine: new Set(), reported: new Set(), life: null, rooms: [] };
+function nick() { return (localStorage.getItem('lt_nick') || '').slice(0, 16); }
+function stopChat() { clearInterval(chat.timer); chat.timer = null; }
+function ago(ts) { const s = Math.max(0, Date.now() / 1000 - ts); return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : Math.floor(s / 3600) + 'h'; }
+
+function lifeCard(l) {
+  const mode = l.mode && l.mode !== 'classic' ? ` · ${MODES[l.mode] ? MODES[l.mode].icon + ' ' + MODES[l.mode].name : ''}` : '';
+  return `<div class="lifecard"><div class="lc-top">🪦 <b>${esc(l.name)}</b> <span class="note">${esc(l.age)} · ${esc(l.country)}${esc(mode)}</span></div>
+    <div class="note">${l.career ? esc(l.career) + ' · ' : ''}${money(l.worth)} · ${esc(l.achievements)} 🏆${l.cause ? ' · ' + esc(l.cause) : ''}</div></div>`;
+}
+
+function openRooms(room, life) {
+  if (room && CHAT_ROOMS_FALLBACK.some((r) => r.id === room)) chat.room = room;
+  if (life !== undefined) chat.life = life;
+  const n = nick();
+  sheet('chat', 'Chat rooms', `<div class="rooms" role="tablist" aria-label="Rooms">${(chat.rooms.length ? chat.rooms : CHAT_ROOMS_FALLBACK).map(roomChip).join('')}</div>
+    <p id="room-blurb" class="note"></p>
+    <div id="chat-list" class="chat-list" aria-live="polite" aria-label="Messages"><p class="note">Loading…</p></div>
+    <div id="chat-card"></div>
+    <form id="chat-form" class="chat-form" autocomplete="off">
+      <div id="nick-row"${n ? ' hidden' : ''}><label for="chat-nick">Nickname</label><input id="chat-nick" maxlength="16" value="${esc(n)}" placeholder="2-16 letters or numbers"></div>
+      <div id="as-row" class="note"${n ? '' : ' hidden'}>Chatting as <b id="as-nick">${esc(n)}</b> · <button type="button" class="link" data-act="nick-change">change</button></div>
+      <div class="send-row"><label for="chat-text" class="sr">Message</label><input id="chat-text" maxlength="240" placeholder="Say something…"><button type="submit" class="opt primary send">Send</button></div>
+      <p id="chat-err" class="no" role="status"></p>
+    </form>
+    <p class="note">Be kind. No links, emails or phone numbers. Messages disappear after 24 hours. Tap ⚑ to report; reported messages are hidden.</p>`);
+  $('#chat-form').addEventListener('submit', (e) => { e.preventDefault(); sendChat(); });
+  if (chat.life && !$('#chat-text').value) $('#chat-text').value = `Here's how my life as ${chat.life.name} went.`;
+  showRoom();
+  fetch('/api/rooms').then((r) => r.json()).then((j) => { chat.rooms = j.rooms || []; document.querySelector('.rooms') && (document.querySelector('.rooms').innerHTML = chat.rooms.map(roomChip).join('')); showRoom(true); }).catch(() => {});
+  stopChat();
+  chat.timer = setInterval(() => { if (!document.hidden) pollChat(); }, 4000);
+}
+const CHAT_ROOMS_FALLBACK = [{ id: 'general', icon: '💬', name: 'General' }, { id: 'stories', icon: '📖', name: 'Life stories' }, { id: 'rich', icon: '💰', name: 'Billionaires club' }, { id: 'hardcore', icon: '💀', name: 'Hardcore' }, { id: 'help', icon: '🛟', name: 'Help & tips' }];
+function roomChip(r) { return `<button type="button" class="chip" role="tab" data-act="room:${esc(r.id)}" aria-selected="${r.id === chat.room}">${esc(r.icon)} ${esc(r.name)}${r.active ? ` <span class="dot" aria-label="${esc(r.active)} active">${esc(r.active)}</span>` : ''}</button>`; }
+
+function showRoom(keepList) {
+  document.querySelectorAll('.rooms .chip').forEach((c) => c.setAttribute('aria-selected', c.dataset.act === 'room:' + chat.room));
+  const r = chat.rooms.find((x) => x.id === chat.room);
+  if ($('#room-blurb')) $('#room-blurb').textContent = r ? r.blurb : '';
+  $('#chat-card').innerHTML = chat.life ? `<div class="attach">${lifeCard(chat.life)}<button type="button" class="link" data-act="chatcard-x">Don't attach</button></div>` : '';
+  if (!keepList) { chat.lastId = 0; $('#chat-list').innerHTML = ''; pollChat(); }
+}
+
+async function pollChat() {
+  const room = chat.room;
+  let j;
+  try { const r = await fetch(`/api/rooms/${encodeURIComponent(room)}/messages?after=${chat.lastId}`); if (!r.ok) return; j = await r.json(); } catch (e) { return; }
+  const L = $('#chat-list');
+  if (!L || room !== chat.room) return;
+  const fresh = (j.messages || []).filter((m) => m.id > chat.lastId && !chat.reported.has(m.id));
+  if (!chat.lastId && !fresh.length) L.innerHTML = '<p class="note empty">No messages yet. Say hi!</p>';
+  if (!fresh.length) return;
+  const wasLoaded = chat.lastId > 0;
+  L.querySelector('.empty')?.remove();
+  const atBottom = L.scrollHeight - L.scrollTop - L.clientHeight < 60;
+  L.insertAdjacentHTML('beforeend', fresh.map((m) => {
+    const me = chat.mine.has(m.id);
+    return `<div class="msg${me ? ' mine' : ''}" data-id="${m.id}"><div class="mhead"><b>${esc(m.nick)}</b> <span class="note">${ago(m.ts)}</span>${me ? '' : `<button type="button" class="flag" data-act="report:${m.id}" aria-label="Report message from ${esc(m.nick)}">⚑</button>`}</div><div class="mtext">${esc(m.text)}</div>${m.life ? lifeCard(m.life) : ''}</div>`;
+  }).join(''));
+  chat.lastId = Math.max(chat.lastId, ...fresh.map((m) => m.id));
+  if (atBottom || fresh.some((m) => chat.mine.has(m.id))) L.scrollTop = L.scrollHeight;
+  if (wasLoaded && fresh.some((m) => !chat.mine.has(m.id))) SFX.play('chat');
+}
+
+async function sendChat() {
+  const err = $('#chat-err'); err.textContent = '';
+  const n = (nick() || $('#chat-nick').value).trim();
+  const text = $('#chat-text').value.trim();
+  if (!n) { err.textContent = 'Pick a nickname first.'; $('#chat-nick').focus(); return; }
+  if (!text) return;
+  const body = { nick: n, text };
+  if (chat.life) body.life = chat.life;
+  let r, j = {};
+  try { r = await fetch(`/api/rooms/${encodeURIComponent(chat.room)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); j = await r.json().catch(() => ({})); } catch (e) { err.textContent = 'Could not send. Check your connection.'; return; }
+  if (!r.ok) { err.textContent = j.error || 'Could not send.'; SFX.play('error'); return; }
+  localStorage.setItem('lt_nick', n);
+  $('#nick-row').hidden = true; $('#as-row').hidden = false; $('#as-nick').textContent = n;
+  chat.mine.add(j.message.id); chat.life = null; $('#chat-card').innerHTML = '';
+  $('#chat-text').value = ''; $('#chat-text').focus();
+  pollChat();
+}
+
+async function reportMsg(id) {
+  chat.reported.add(id);
+  document.querySelector(`.msg[data-id="${id}"]`)?.remove();
+  toast('Thanks. The message is hidden for you, and it is hidden for everyone if others report it too.');
+  try { await fetch(`/api/rooms/${encodeURIComponent(chat.room)}/messages/${id}/report`, { method: 'POST' }); } catch (e) { /* best effort */ }
+}
+
+function shareLife() {
+  openRooms('stories', {
+    name: fullName(P), age: P.age, country: P.country, career: P.job ? jobTitle() : P.retired ? 'Retired' : '',
+    cause: P.causeOfDeath || '', worth: Math.round(netWorth()), achievements: P.achievements.length, mode: P.mode || 'classic',
+  });
+}
+
 // ---------- toast ----------
 let toastTimer;
-function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3500); }
+function toast(t, quiet) {
+  if (!quiet) SFX.play('tap'); const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3500); }
 
 // ---------- wiring ----------
 document.addEventListener('click', (e) => {
@@ -778,6 +972,13 @@ document.addEventListener('click', (e) => {
     case 'born': return born(false);
     case 'born-plus': return born(true);
     case 'store': return openStore(arg);
+    case 'mode': SFX.play('tap'); return setMode(arg);
+    case 'rooms': return openRooms();
+    case 'room': chat.room = arg; return showRoom();
+    case 'report': return reportMsg(i);
+    case 'sharelife': return shareLife();
+    case 'chatcard-x': chat.life = null; return showRoom(true);
+    case 'nick-change': localStorage.removeItem('lt_nick'); $('#nick-row').hidden = false; $('#as-row').hidden = true; return $('#chat-nick').focus();
     case 'restore': { const k = $('#lk').value.trim(); if (k) redeem(k, false).then((ok) => { if (ok) openStore(); }); return; }
     case 'edsave': for (const k of ['happy', 'health', 'smarts', 'looks']) P.s[k] = clamp(Number($(`#ed-${k}`).value)); log('You rewrote your destiny.'); closeSheet(); save(); return render();
   }
@@ -790,6 +991,10 @@ $('#nav-people').addEventListener('click', openPeople);
 $('#nav-assets').addEventListener('click', openAssets);
 $('#nav-editor').addEventListener('click', openEditor);
 $('#nav-store').addEventListener('click', () => openStore());
+$('#nav-rooms').addEventListener('click', () => openRooms());
+function syncSoundBtn() { const b = $('#nav-sound'); b.textContent = SFX.muted ? '🔇' : '🔊'; b.setAttribute('aria-pressed', String(!SFX.muted)); b.setAttribute('aria-label', SFX.muted ? 'Sound off' : 'Sound on'); }
+$('#nav-sound').addEventListener('click', () => { SFX.toggle(); syncSoundBtn(); });
+syncSoundBtn();
 $('#sheet-close').addEventListener('click', closeSheet);
 $('#scrim').addEventListener('click', closeSheet);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });

@@ -18,9 +18,10 @@
     </div>
     <div class="right">
       <div id="cash" class="cash" aria-label="Cash"></div>
-      <button type="button" id="nav-store" class="store-btn" aria-label="Store">⭐ Store</button>
+      <div class="hbtns"><button type="button" id="nav-sound" class="room-btn" aria-label="Sound on" aria-pressed="true">🔊</button><button type="button" id="nav-rooms" class="room-btn" aria-label="Chat rooms" title="Chat rooms">💬</button><button type="button" id="nav-store" class="store-btn" aria-label="Store">⭐ Store</button></div>
     </div>
   </header>
+  <div id="goal" class="goal" role="status" hidden></div>
 
   <main id="log" class="log" aria-live="polite" aria-label="Life story"></main>
 
@@ -49,6 +50,8 @@
 </div>
 <div id="toast" class="toast" role="status" hidden></div>
 
+<script src="/sfx.js"></script>
+<script src="/content.js"></script>
 <script src="/game.js"></script>
 </body>
 </html>

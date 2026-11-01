@@ -154,3 +154,43 @@ output { color: var(--ink); font-weight: 800; float: right; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---------- header buttons, goal banner ---------- */
+.hbtns { display: flex; gap: .3rem; justify-content: flex-end; align-items: center; }
+.room-btn { margin-top: .3rem; background: var(--card2); color: var(--ink); border: 1px solid var(--line); border-radius: 50%; width: 1.9rem; height: 1.9rem; padding: 0; cursor: pointer; font-size: .85rem; display: grid; place-items: center; }
+.room-btn:hover { border-color: var(--brand); }
+.goal { padding: .45rem 1rem; font-size: .82rem; background: #1d1640; border-bottom: 1px solid var(--line); color: var(--muted); }
+.goal b { color: var(--ink); }
+.ok { color: var(--good); } .no { color: var(--bad); }
+p.no { min-height: 1em; margin: .3rem 0 0; font-size: .85rem; }
+.ev.drama { color: #ffb4e1; } .ev.drama::before { content: "🎭"; }
+
+/* ---------- modes, locked careers ---------- */
+.mode-tile[aria-pressed="true"] { border-color: var(--brand2); background: linear-gradient(180deg, #3a2160, var(--card)); box-shadow: 0 0 0 2px rgba(255, 95, 162, .35); }
+.job.locked { border-style: dashed; }
+.job.locked b { color: var(--muted); }
+
+/* ---------- chat ---------- */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; }
+.rooms { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .3rem; scrollbar-width: none; }
+.chip { flex: none; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: .35rem .8rem; cursor: pointer; font-size: .82rem; font-weight: 600; white-space: nowrap; }
+.chip[aria-selected="true"] { background: var(--grad); border-color: transparent; color: #fff; }
+.chip .dot { display: inline-block; min-width: 1.2rem; padding: 0 .3rem; border-radius: 999px; background: var(--good); color: #062b17; font-size: .7rem; font-weight: 800; text-align: center; }
+.chat-list { height: 42dvh; overflow-y: auto; background: #0f0b20; border: 1px solid var(--line); border-radius: var(--r); padding: .5rem; display: flex; flex-direction: column; gap: .4rem; }
+.msg { max-width: 88%; align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: .4rem .65rem; }
+.msg.mine { align-self: flex-end; background: #2b2058; border-color: #4b3d8a; border-radius: 14px 14px 4px 14px; }
+.mhead { display: flex; align-items: baseline; gap: .4rem; font-size: .8rem; }
+.mhead b { color: #c7b8ff; }
+.flag { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: .85rem; padding: 0 .2rem; }
+.flag:hover { color: var(--bad); }
+.mtext { font-size: .93rem; overflow-wrap: anywhere; }
+.lifecard { margin-top: .35rem; background: linear-gradient(180deg, #2a2347, #1b1634); border: 1px solid var(--line); border-radius: 12px; padding: .45rem .6rem; font-size: .85rem; }
+.attach { margin-top: .5rem; display: grid; gap: .25rem; }
+.chat-form { margin-top: .5rem; }
+.send-row { display: flex; gap: .4rem; margin-top: .4rem; }
+.send-row input { flex: 1; }
+.send-row .send { width: auto; margin: 0; padding: .6rem 1.1rem; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
+.two .opt { margin: .45rem 0 0; }
+.pledge { background: linear-gradient(180deg, #13301f, var(--card)); border: 1px solid #2c6a45; border-radius: var(--r); padding: .65rem .85rem; margin-bottom: .4rem; }
+.pledge b { color: var(--good); }
