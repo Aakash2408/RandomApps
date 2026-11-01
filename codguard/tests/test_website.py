@@ -142,6 +142,12 @@ def test_valid_license_is_cached(client, ls):
     assert len(ls[1]) == 1
 
 
+def test_fresh_never_activated_key_is_accepted(client, ls):
+    # Lemon Squeezy reports a brand-new subscriber's key as "inactive".
+    ls[0]["resp"] = ls_response(status="inactive")
+    assert client.get("/api/v1/usage", headers=AUTH).status_code == 200
+
+
 # --- paid check + bulk ----------------------------------------------------------------
 
 def test_paid_check_counts_usage_and_enforces_quota(client, ls, monkeypatch):

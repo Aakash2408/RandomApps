@@ -25,6 +25,7 @@ from . import config
 
 VALIDATE_URL = "https://api.lemonsqueezy.com/v1/licenses/validate"
 CACHE_SECONDS = 600
+USABLE_STATUSES = ("active", "inactive")
 
 
 class LicenseError(Exception):
@@ -77,7 +78,9 @@ def verify(key: str | None) -> License:
 
     lk = body.get("license_key") or {}
     meta = body.get("meta") or {}
-    if body.get("valid") is not True or lk.get("status") != "active":
+    # A fresh key is "inactive" (never activated on a device) and that is a paying
+    # customer; "expired" (subscription ended) and "disabled" (refund/manual) are not.
+    if body.get("valid") is not True or lk.get("status") not in USABLE_STATUSES:
         raise LicenseError("license key is not active (subscription ended or key is wrong)")
     if str(meta.get("store_id")) != s.ls_store_id:
         raise LicenseError("license key is not for CODGuard")
