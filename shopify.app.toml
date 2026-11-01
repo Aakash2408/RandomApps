@@ -1,0 +1,21 @@
+# Shopify app configuration for `shopify app deploy`.
+# Replace client_id and the URLs with your Partner Dashboard app and deployed host.
+name = "CODGuard"
+client_id = "REPLACE_WITH_SHOPIFY_API_KEY"
+application_url = "https://REPLACE_WITH_APP_HOST/"
+embedded = true
+
+[access_scopes]
+scopes = "read_orders,write_orders"
+
+[auth]
+redirect_urls = ["https://REPLACE_WITH_APP_HOST/auth/callback"]
+
+[webhooks]
+api_version = "2026-10"
+
+  # Mandatory privacy webhooks. Shopify will not list the app without them.
+  [webhooks.privacy_compliance]
+  customer_data_request_url = "https://REPLACE_WITH_APP_HOST/webhooks"
+  customer_deletion_url = "https://REPLACE_WITH_APP_HOST/webhooks"
+  shop_deletion_url = "https://REPLACE_WITH_APP_HOST/webhooks"
